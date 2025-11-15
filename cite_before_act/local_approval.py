@@ -37,7 +37,12 @@ class LocalApproval:
             True if approved, False if rejected
         """
         if self.use_gui:
-            return await self._gui_approval(tool_name, description, arguments)
+            try:
+                return await self._gui_approval(tool_name, description, arguments)
+            except Exception as e:
+                # GUI failed (likely headless environment), fall back to file-based
+                print(f"GUI approval failed ({e}), falling back to file-based approval", file=sys.stderr)
+                return await self._cli_approval(tool_name, description, arguments)
         else:
             return await self._cli_approval(tool_name, description, arguments)
 
@@ -59,86 +64,81 @@ class LocalApproval:
         Returns:
             True if approved, False if rejected
         """
-        # For stdio MCP, we can't read from stdin, so try GUI first
-        # If GUI fails, fall back to a blocking approach that writes to stderr
-        try:
-            return await self._gui_approval(tool_name, description, arguments)
-        except Exception:
-            # GUI failed, use a file-based or blocking approach
-            import json
-            import time
-            import uuid
+        # For stdio MCP, we can't read from stdin, so use file-based approval
+        # This writes approval requests to /tmp and waits for user response
+        import json
+        import time
+        import uuid
 
-            approval_id = str(uuid.uuid4())
-            approval_file = f"/tmp/cite-before-act-approval-{approval_id}.json"
+        approval_id = str(uuid.uuid4())
+        approval_file = f"/tmp/cite-before-act-approval-{approval_id}.json"
 
-            # Write approval request info to file (for user reference)
-            request_data = {
-                "approval_id": approval_id,
-                "tool_name": tool_name,
-                "description": description,
-                "arguments": arguments,
-            }
-            info_file = f"{approval_file}.info"
-            with open(info_file, "w") as f:
-                json.dump(request_data, f, indent=2)
+        # Write approval request info to file (for user reference)
+        request_data = {
+            "approval_id": approval_id,
+            "tool_name": tool_name,
+            "description": description,
+            "arguments": arguments,
+        }
+        info_file = f"{approval_file}.info"
+        with open(info_file, "w") as f:
+            json.dump(request_data, f, indent=2)
 
-            # Print to stderr (visible in Claude Desktop logs)
-            print("\n" + "=" * 70, file=sys.stderr)
-            print("🔒 APPROVAL REQUIRED", file=sys.stderr)
-            print("=" * 70, file=sys.stderr)
-            print(f"Tool: {tool_name}", file=sys.stderr)
-            print(f"\nDescription:", file=sys.stderr)
-            print(f"  {description}", file=sys.stderr)
-            print(f"\nArguments:", file=sys.stderr)
-            print(json.dumps(arguments, indent=2), file=sys.stderr)
-            print("=" * 70, file=sys.stderr)
-            print(f"\n📝 Approval file: {approval_file}", file=sys.stderr)
-            print(f"To approve, run:", file=sys.stderr)
-            print(f'  echo "approved" > {approval_file}', file=sys.stderr)
-            print(f"To reject, run:", file=sys.stderr)
-            print(f'  echo "rejected" > {approval_file}', file=sys.stderr)
-            print(f"\n⏳ Waiting for approval...", file=sys.stderr)
-            sys.stderr.flush()
+        # Print to stderr (visible in Claude Desktop logs)
+        print("\n" + "=" * 70, file=sys.stderr, flush=True)
+        print("🔒 APPROVAL REQUIRED", file=sys.stderr, flush=True)
+        print("=" * 70, file=sys.stderr, flush=True)
+        print(f"Tool: {tool_name}", file=sys.stderr, flush=True)
+        print(f"\nDescription:", file=sys.stderr, flush=True)
+        print(f"  {description}", file=sys.stderr, flush=True)
+        print(f"\nArguments:", file=sys.stderr, flush=True)
+        print(json.dumps(arguments, indent=2), file=sys.stderr, flush=True)
+        print("=" * 70, file=sys.stderr, flush=True)
+        print(f"\n📝 Approval file: {approval_file}", file=sys.stderr, flush=True)
+        print(f"To approve, run:", file=sys.stderr, flush=True)
+        print(f'  echo "approved" > {approval_file}', file=sys.stderr, flush=True)
+        print(f"To reject, run:", file=sys.stderr, flush=True)
+        print(f'  echo "rejected" > {approval_file}', file=sys.stderr, flush=True)
+        print(f"\n⏳ Waiting for approval (check Claude Desktop logs for this message)...", file=sys.stderr, flush=True)
 
-            # Poll the file for response (with timeout)
-            timeout = 300  # 5 minutes
-            start_time = time.time()
-            while time.time() - start_time < timeout:
-                try:
-                    if os.path.exists(approval_file):
-                        with open(approval_file, "r") as f:
-                            response = f.read().strip().lower()
-                            if response == "approved":
-                                os.remove(approval_file)
-                                try:
-                                    os.remove(info_file)
-                                except Exception:
-                                    pass
-                                print("✅ Approved", file=sys.stderr)
-                                return True
-                            elif response == "rejected":
-                                os.remove(approval_file)
-                                try:
-                                    os.remove(info_file)
-                                except Exception:
-                                    pass
-                                print("❌ Rejected", file=sys.stderr)
-                                return False
-                except Exception:
-                    pass
-                await asyncio.sleep(0.5)  # Check every 500ms
-
-            # Timeout
+        # Poll the file for response (with timeout)
+        timeout = 300  # 5 minutes
+        start_time = time.time()
+        while time.time() - start_time < timeout:
             try:
                 if os.path.exists(approval_file):
-                    os.remove(approval_file)
-                if os.path.exists(info_file):
-                    os.remove(info_file)
+                    with open(approval_file, "r") as f:
+                        response = f.read().strip().lower()
+                        if response == "approved":
+                            os.remove(approval_file)
+                            try:
+                                os.remove(info_file)
+                            except Exception:
+                                pass
+                            print("✅ Approved", file=sys.stderr, flush=True)
+                            return True
+                        elif response == "rejected":
+                            os.remove(approval_file)
+                            try:
+                                os.remove(info_file)
+                            except Exception:
+                                pass
+                            print("❌ Rejected", file=sys.stderr, flush=True)
+                            return False
             except Exception:
                 pass
-            print("⏱️  Approval timeout - rejected", file=sys.stderr)
-            return False
+            await asyncio.sleep(0.5)  # Check every 500ms
+
+        # Timeout
+        try:
+            if os.path.exists(approval_file):
+                os.remove(approval_file)
+            if os.path.exists(info_file):
+                os.remove(info_file)
+        except Exception:
+            pass
+        print("⏱️  Approval timeout - rejected", file=sys.stderr, flush=True)
+        return False
 
     async def _gui_approval(
         self,
