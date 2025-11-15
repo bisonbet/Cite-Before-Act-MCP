@@ -3,6 +3,8 @@
 from typing import List, Optional, Set
 from enum import Enum
 
+from cite_before_act.debug import debug_log
+
 
 class DetectionStrategy(Enum):
     """Detection strategies available."""
