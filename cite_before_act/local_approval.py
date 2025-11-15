@@ -140,6 +140,8 @@ class LocalApproval:
     ) -> None:
         """Show native macOS dialog using osascript.
         
+        Uses a simple display dialog that doesn't require System Events permissions.
+        
         Args:
             approval_file: Path to approval file
             tool_name: Name of the tool
@@ -147,9 +149,23 @@ class LocalApproval:
             arguments: Arguments that would be passed
         """
         try:
-            # Format message for dialog
-            args_text = json.dumps(arguments, indent=2)
-            message = f"Tool: {tool_name}\n\nDescription:\n{description}\n\nArguments:\n{args_text}"
+            # Format a concise message for dialog (macOS dialogs have limited space)
+            # Show key info: tool name, description, and key arguments
+            args_summary = []
+            for key, value in arguments.items():
+                if isinstance(value, str):
+                    # Truncate long strings
+                    display_value = value[:60] + "..." if len(value) > 60 else value
+                    args_summary.append(f"{key}: {display_value}")
+                elif isinstance(value, (int, float, bool)):
+                    args_summary.append(f"{key}: {value}")
+                else:
+                    args_summary.append(f"{key}: {type(value).__name__}")
+            
+            args_text = "\n".join(args_summary) if args_summary else "No arguments"
+            
+            # Create a concise message (macOS dialogs work better with shorter text)
+            message = f"Tool: {tool_name}\n\n{description}\n\nParameters:\n{args_text}"
             
             # Use a more robust approach: write message to temp file and read it
             # This avoids escaping issues with complex messages
@@ -158,22 +174,21 @@ class LocalApproval:
                 f.write(message)
                 temp_msg_file = f.name
             
-            # Create AppleScript to show dialog
+            # Create AppleScript WITHOUT System Events (no permissions needed!)
+            # Just use display dialog directly - it doesn't require any special permissions
             script = f'''
             set msgFile to open for access file POSIX file "{temp_msg_file}"
             set msgContent to read msgFile
             close access msgFile
             
-            tell application "System Events"
-                activate
-                set response to display dialog msgContent buttons {{"Reject", "Approve"}} default button "Approve" with title "🔒 Approval Required" with icon caution
-                set buttonPressed to button returned of response
-                if buttonPressed is "Approve" then
-                    do shell script "echo approved > {approval_file}"
-                else
-                    do shell script "echo rejected > {approval_file}"
-                end if
-            end tell
+            -- Simple display dialog (no System Events needed, no permissions required)
+            set response to display dialog msgContent buttons {{"Reject", "Approve"}} default button "Approve" with title "🔒 Approval Required" with icon caution
+            set buttonPressed to button returned of response
+            if buttonPressed is "Approve" then
+                do shell script "echo approved > {approval_file}"
+            else
+                do shell script "echo rejected > {approval_file}"
+            end if
             
             do shell script "rm {temp_msg_file}"
             '''
