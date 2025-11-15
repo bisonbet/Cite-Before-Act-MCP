@@ -308,14 +308,50 @@ class ProxyServer:
                         param_defs.append(f"{param_name}: {type_hint}")
                 
                 params_str = ", ".join(param_defs)
-                # Build code to collect parameters into dict
-                # Start with required parameters
-                required_parts = [f"'{p}': {p}" for p in param_names if p in required_params]
-                collect_code = "arguments = {" + ", ".join(required_parts) + "}\n"
-                # Add optional parameters only if they're not None
+                # Build code to collect and convert parameters into dict
+                # We need to convert string parameters to their correct types based on schema
+                collect_code = "arguments = {}\n"
+                # Convert and add all parameters (required and optional)
                 for p in param_names:
-                    if p not in required_params:
-                        collect_code += f"    if {p} is not None:\n        arguments['{p}'] = {p}\n"
+                    prop = properties.get(p, {})
+                    param_type = prop.get("type", "string")
+                    var_name = p
+                    
+                    # Build conversion code based on type
+                    if param_type == "integer":
+                        # Convert to int (handle string "1" -> int 1)
+                        if p in required_params:
+                            collect_code += f"    arguments['{p}'] = int({var_name}) if isinstance({var_name}, str) else {var_name}\n"
+                        else:
+                            collect_code += f"    if {var_name} is not None:\n"
+                            collect_code += f"        arguments['{p}'] = int({var_name}) if isinstance({var_name}, str) else {var_name}\n"
+                    elif param_type == "number":
+                        # Convert to float (handle string "1.0" -> float 1.0)
+                        if p in required_params:
+                            collect_code += f"    arguments['{p}'] = float({var_name}) if isinstance({var_name}, str) else {var_name}\n"
+                        else:
+                            collect_code += f"    if {var_name} is not None:\n"
+                            collect_code += f"        arguments['{p}'] = float({var_name}) if isinstance({var_name}, str) else {var_name}\n"
+                    elif param_type == "boolean":
+                        # Convert to bool (handle string "true"/"false" -> bool)
+                        if p in required_params:
+                            collect_code += f"    if isinstance({var_name}, str):\n"
+                            collect_code += f"        arguments['{p}'] = {var_name}.lower() in ('true', '1', 'yes')\n"
+                            collect_code += f"    else:\n"
+                            collect_code += f"        arguments['{p}'] = bool({var_name})\n"
+                        else:
+                            collect_code += f"    if {var_name} is not None:\n"
+                            collect_code += f"        if isinstance({var_name}, str):\n"
+                            collect_code += f"            arguments['{p}'] = {var_name}.lower() in ('true', '1', 'yes')\n"
+                            collect_code += f"        else:\n"
+                            collect_code += f"            arguments['{p}'] = bool({var_name})\n"
+                    else:
+                        # String, array, object - pass through as-is
+                        if p in required_params:
+                            collect_code += f"    arguments['{p}'] = {var_name}\n"
+                        else:
+                            collect_code += f"    if {var_name} is not None:\n"
+                            collect_code += f"        arguments['{p}'] = {var_name}\n"
             else:
                 params_str = ""
                 collect_code = "arguments = {}"
