@@ -488,34 +488,51 @@ class ProxyServer:
         if "result" in response:
             result = response["result"]
             if "content" in result and len(result["content"]) > 0:
-                # If there's only one content item, return it directly
-                # Otherwise, combine all content items
                 content_items = result["content"]
-                if len(content_items) == 1:
-                    content_item = content_items[0]
-                    if isinstance(content_item, dict):
-                        if "text" in content_item:
-                            return content_item["text"]
-                        elif "data" in content_item:
-                            return content_item["data"]
-                    return content_item
-                else:
-                    # Multiple content items - combine them
-                    combined = []
-                    for item in content_items:
-                        if isinstance(item, dict):
-                            if "text" in item:
-                                combined.append(item["text"])
-                            elif "data" in item:
-                                combined.append(item["data"])
-                            else:
-                                combined.append(str(item))
+                
+                # Prioritize resource content (actual file/data content)
+                # over status messages
+                resource_content = None
+                text_content = []
+                
+                for item in content_items:
+                    if isinstance(item, dict):
+                        # Check for resource type (actual content)
+                        if item.get("type") == "resource" and "resource" in item:
+                            resource = item["resource"]
+                            # Extract text from resource if available
+                            if "text" in resource:
+                                resource_content = resource["text"]
+                            elif "data" in resource:
+                                resource_content = resource["data"]
+                            elif "uri" in resource:
+                                # Resource URI - might be useful for reference
+                                resource_content = f"Resource: {resource['uri']}"
+                        # Check for direct text content
+                        elif "text" in item:
+                            text_content.append(item["text"])
+                        elif "data" in item:
+                            text_content.append(item["data"])
                         else:
-                            combined.append(str(item))
-                    # Join with newlines if all are strings
-                    if all(isinstance(c, str) for c in combined):
-                        return "\n".join(combined)
-                    return combined
+                            # Fallback: string representation
+                            text_content.append(str(item))
+                    else:
+                        text_content.append(str(item))
+                
+                # Return resource content if available (actual file/data)
+                if resource_content:
+                    return resource_content
+                
+                # Otherwise, return combined text content
+                if text_content:
+                    if len(text_content) == 1:
+                        return text_content[0]
+                    # Join multiple text items with newlines
+                    return "\n".join(text_content)
+                
+                # Fallback: return first item as-is
+                return content_items[0]
+            
             return result
 
         return None
