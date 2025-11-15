@@ -162,7 +162,7 @@ To use Cite-Before-Act MCP with Claude Desktop, you need to add the proxy server
            "APPROVAL_TIMEOUT_SECONDS": "300",
            "ENABLE_SLACK": "true",
            "USE_LOCAL_APPROVAL": "true",
-           "USE_GUI_APPROVAL": "true"
+           "USE_GUI_APPROVAL": "false"
          }
        }
      }
@@ -211,7 +211,7 @@ To use Cite-Before-Act MCP with Claude Desktop, you need to add the proxy server
            "APPROVAL_TIMEOUT_SECONDS": "300",
            "ENABLE_SLACK": "true",
            "USE_LOCAL_APPROVAL": "true",
-           "USE_GUI_APPROVAL": "true"
+           "USE_GUI_APPROVAL": "false"
          }
        },
        "other-server": {
@@ -433,7 +433,7 @@ SLACK_CHANNEL=#approvals  # Optional: channel name or ID
 
 # Local approval settings (enabled by default)
 USE_LOCAL_APPROVAL=true   # Default: true - Enable local approval
-USE_GUI_APPROVAL=true     # Default: true - Use GUI dialog (requires tkinter)
+USE_GUI_APPROVAL=false    # Default: false - Use file-based approval (required for stdio MCP/Claude Desktop)
 ```
 
 **Approval Priority & Behavior:**

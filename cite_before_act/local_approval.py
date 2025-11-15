@@ -22,11 +22,10 @@ class LocalApproval:
         """
         if use_gui is None:
             # Auto-detect: GUI only works if:
-            # 1. DISPLAY environment variable is set (X11/wayland)
+            # 1. DISPLAY environment variable is set (X11/wayland) OR we're on macOS with GUI
             # 2. Not running in a headless environment
-            # 3. For stdio MCP servers, default to file-based (safer)
-            has_display = os.getenv("DISPLAY") is not None
-            # Default to file-based for safety (especially in stdio MCP environments)
+            # 3. For stdio MCP servers, NEVER use GUI (causes thread issues)
+            # Since we're in a stdio MCP server, always default to file-based
             self.use_gui = False
         else:
             self.use_gui = use_gui
@@ -48,13 +47,18 @@ class LocalApproval:
             True if approved, False if rejected
         """
         if self.use_gui:
+            # Only try GUI if explicitly enabled
+            # Note: GUI will likely fail in stdio MCP environments due to thread restrictions
             try:
                 return await self._gui_approval(tool_name, description, arguments)
             except Exception as e:
-                # GUI failed (likely headless environment), fall back to file-based
-                print(f"GUI approval failed ({e}), falling back to file-based approval", file=sys.stderr)
+                # GUI failed (likely headless/stdio environment), fall back to file-based
+                print(f"GUI approval failed ({e}), falling back to file-based approval", file=sys.stderr, flush=True)
+                # Disable GUI for future attempts
+                self.use_gui = False
                 return await self._cli_approval(tool_name, description, arguments)
         else:
+            # Use file-based approval (safe for stdio MCP)
             return await self._cli_approval(tool_name, description, arguments)
 
     async def _cli_approval(

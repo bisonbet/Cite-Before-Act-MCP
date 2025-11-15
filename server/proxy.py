@@ -79,11 +79,16 @@ class ProxyServer:
         local_approval = None
         should_use_local = self.settings.use_local_approval or not slack_configured
         if should_use_local:
-            # For stdio MCP servers (like Claude Desktop), default to file-based approval
-            # GUI can cause issues in headless/background thread environments
-            # Only use GUI if explicitly requested AND we have a display
-            use_gui = self.settings.use_gui_approval if self.settings.use_gui_approval else None
-            local_approval = LocalApproval(use_gui=use_gui)
+            # For stdio MCP servers (like Claude Desktop), ALWAYS use file-based approval
+            # GUI causes crashes on macOS when run from background threads (stdio MCP)
+            # Even if USE_GUI_APPROVAL=true is set, we force file-based for stdio transport
+            use_gui_env = os.getenv("USE_GUI_APPROVAL", "").lower()
+            if use_gui_env == "true":
+                # User requested GUI, but we're in stdio mode - warn and use file-based
+                print("Warning: USE_GUI_APPROVAL=true is not supported in stdio MCP mode (Claude Desktop).", file=sys.stderr, flush=True)
+                print("Using file-based approval instead. Check logs for approval file path.", file=sys.stderr, flush=True)
+            # Always use file-based for stdio MCP (safe and reliable)
+            local_approval = LocalApproval(use_gui=False)
 
         # Approval manager
         approval_manager = ApprovalManager(
