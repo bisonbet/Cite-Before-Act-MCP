@@ -41,12 +41,23 @@ pip install -e .
 
 ### Step 3: Set Up Slack App
 
-1. Go to https://api.slack.com/apps and create a new app
-2. Add the following **Bot Token Scopes**:
-   - `chat:write` - Send messages
-   - `interactive:write` - Handle button clicks
-3. Install the app to your workspace
-4. Copy the **Bot User OAuth Token** (starts with `xoxb-`)
+1. **Create a Slack App**: Go to https://api.slack.com/apps and create a new app
+2. **Navigate to OAuth & Permissions**:
+   - In the left-hand sidebar of your app's settings, click on **"OAuth & Permissions"**
+3. **Add Bot Token Scopes**:
+   - Scroll down to the **"Scopes"** section
+   - Under **"Bot Token Scopes"**, click **"Add an OAuth Scope"**
+   - Add the following scope:
+     - `chat:write` - Send messages (required for sending approval requests with buttons)
+4. **Install the App to Workspace**:
+   - Scroll back up to the **"OAuth Tokens for Your Workspace"** section
+   - Click **"Install to Workspace"** (or **"Reinstall to Workspace"** if already installed)
+   - Authorize the app with the requested permissions
+5. **Copy the Bot Token**:
+   - After installation, copy the **"Bot User OAuth Token"** (starts with `xoxb-`)
+   - This is the token you'll use in your `.env` file
+
+**Note**: Interactive components (button clicks) don't require a separate OAuth scope. They work via webhook URLs configured in the "Interactive Components" section. For basic approval workflows, the `chat:write` scope is sufficient. If you want to receive button click responses via webhook, see the [Slack App Setup](#slack-app-setup) section below for webhook configuration.
 
 ### Step 4: Configure Environment
 
@@ -232,18 +243,43 @@ See `examples/library_usage.py` for a complete example.
 
 ## Slack App Setup
 
-To receive approval responses, you need to set up a Slack app:
+To receive approval responses, you need to set up a Slack app with the proper permissions:
+
+### OAuth Scopes Setup
 
 1. **Create a Slack App**: Go to https://api.slack.com/apps and create a new app
-2. **Add Bot Token Scopes**:
-   - `chat:write` - Send messages
-   - `commands` - Handle slash commands (optional)
-   - `interactive:write` - Handle button clicks
-3. **Install to Workspace**: Install the app to your workspace
-4. **Get Bot Token**: Copy the bot token (starts with `xoxb-`)
-5. **Set Up Interactive Components** (optional, for webhook):
-   - Add a Request URL (e.g., `https://your-server.com/slack/interactive`)
+2. **Navigate to OAuth & Permissions**:
+   - In the left-hand sidebar of your app's settings, click on **"OAuth & Permissions"**
+3. **Add Bot Token Scopes**:
+   - Scroll down to the **"Scopes"** section
+   - Under **"Bot Token Scopes"**, click **"Add an OAuth Scope"**
+   - Add the following scope:
+     - `chat:write` - Send messages (required for sending approval requests with interactive buttons)
+4. **Install to Workspace**:
+   - Scroll back up to the **"OAuth Tokens for Your Workspace"** section
+   - Click **"Install to Workspace"** (or **"Reinstall to Workspace"** if you've added new scopes)
+   - Follow the prompts to authorize the app
+5. **Copy the Bot Token**:
+   - After installation, copy the **"Bot User OAuth Token"** (starts with `xoxb-`)
+   - Save this token - you'll need it for your `.env` file
+
+### Interactive Components Setup (Optional - for Webhook Responses)
+
+If you want to receive button click responses via webhook (instead of polling), configure Interactive Components:
+
+1. **Navigate to Interactive Components**:
+   - In the left-hand sidebar, click on **"Interactive Components"**
+2. **Enable Interactive Components**:
+   - Toggle **"Interactivity"** to **On**
+3. **Set Request URL**:
+   - Enter your webhook URL (e.g., `https://your-server.com/slack/interactive`)
+   - This URL must be publicly accessible (use ngrok for local testing)
+   - Click **"Save Changes"**
+4. **Test the Webhook**:
    - See `examples/slack_webhook_example.py` for a Flask example
+   - Use ngrok to expose your local server: `ngrok http 3000`
+
+**Note**: Interactive components don't require a separate OAuth scope. The `chat:write` scope is sufficient to send messages with buttons. Button clicks are handled via the webhook URL you configure, not through OAuth scopes.
 
 ## Testing with Official MCP Filesystem Server
 
@@ -442,7 +478,8 @@ npm install -g @modelcontextprotocol/inspector
 - Verify `SLACK_BOT_TOKEN` is correct and starts with `xoxb-`
 - Check that the bot is installed to your workspace
 - Verify `SLACK_CHANNEL` exists and the bot has access
-- Check bot token scopes include `chat:write` and `interactive:write`
+- Check that the `chat:write` OAuth scope is added in "OAuth & Permissions"
+- If using webhooks for button responses, verify Interactive Components is configured with a valid Request URL
 
 **Issue: Filesystem operations failing**
 - Verify the test directory exists: `~/mcp-test-workspace`
