@@ -83,7 +83,11 @@ class ProxyServer:
             # Use native dialogs on macOS/Windows, file-based on Linux
             # Native dialogs use osascript (macOS) or PowerShell (Windows)
             # These work even in stdio MCP mode because they run as separate processes
+            # If Slack is configured, disable native dialogs but keep file-based logging
             use_native = os.getenv("USE_NATIVE_DIALOG", "true").lower() == "true"
+            if slack_configured:
+                # When Slack is enabled, skip native popup but keep CLI logging
+                use_native = False
             local_approval = LocalApproval(
                 use_native_dialog=use_native,
                 use_file_based=True,  # Always show file-based instructions in logs
@@ -302,7 +306,8 @@ class ProxyServer:
             )
             
             # Register with FastMCP
-            self.mcp.tool(name=tool_name, description=desc)(handler)
+            # Use 'name' (captured variable) instead of 'tool_name' (loop variable) to avoid closure issues
+            self.mcp.tool(name=name, description=desc)(handler)
 
         # Set up middleware to call upstream tools
         if self.middleware:
