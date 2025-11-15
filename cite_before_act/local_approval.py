@@ -92,15 +92,24 @@ class LocalApproval:
         with open(info_file, "w") as f:
             json.dump(request_data, f, indent=2)
 
+        # Create a details file with full information
+        details_file = approval_file.replace(".json", "-details.txt")
+        with open(details_file, 'w') as f:
+            f.write(f"Tool: {tool_name}\n")
+            f.write(f"{'=' * 60}\n\n")
+            f.write(f"Description:\n{description}\n\n")
+            f.write(f"{'=' * 60}\n\n")
+            f.write("Full Parameters:\n")
+            f.write(json.dumps(arguments, indent=2))
+            f.write("\n")
+        
         # Print to stderr (visible in Claude Desktop logs)
         print("\n" + "=" * 70, file=sys.stderr, flush=True)
         print("🔒 APPROVAL REQUIRED", file=sys.stderr, flush=True)
         print("=" * 70, file=sys.stderr, flush=True)
         print(f"Tool: {tool_name}", file=sys.stderr, flush=True)
-        print(f"\nDescription:", file=sys.stderr, flush=True)
-        print(f"  {description}", file=sys.stderr, flush=True)
-        print(f"\nArguments:", file=sys.stderr, flush=True)
-        print(json.dumps(arguments, indent=2), file=sys.stderr, flush=True)
+        print(f"\nDescription:\n  {description}", file=sys.stderr, flush=True)
+        print(f"\n📄 Full details saved to: {details_file}", file=sys.stderr, flush=True)
         print("=" * 70, file=sys.stderr, flush=True)
         print(f"\n📝 To approve via file (works on all platforms):", file=sys.stderr, flush=True)
         print(f'  echo "approved" > {approval_file}', file=sys.stderr, flush=True)
@@ -141,6 +150,7 @@ class LocalApproval:
         """Show native macOS dialog using osascript.
         
         Uses a simple display dialog that doesn't require System Events permissions.
+        Creates a details file that can be opened for full parameter information.
         
         Args:
             approval_file: Path to approval file
@@ -149,41 +159,48 @@ class LocalApproval:
             arguments: Arguments that would be passed
         """
         try:
-            # Format a concise message for dialog (macOS dialogs have limited space)
-            # Show key info: tool name, description, and key arguments
-            args_summary = []
-            for key, value in arguments.items():
-                if isinstance(value, str):
-                    # Truncate long strings
-                    display_value = value[:60] + "..." if len(value) > 60 else value
-                    args_summary.append(f"{key}: {display_value}")
-                elif isinstance(value, (int, float, bool)):
-                    args_summary.append(f"{key}: {value}")
-                else:
-                    args_summary.append(f"{key}: {type(value).__name__}")
+            import tempfile
             
-            args_text = "\n".join(args_summary) if args_summary else "No arguments"
+            # Create a details file with full information (JSON formatted)
+            details_file = approval_file.replace(".json", "-details.txt")
+            with open(details_file, 'w') as f:
+                f.write(f"Tool: {tool_name}\n")
+                f.write(f"{'=' * 60}\n\n")
+                f.write(f"Description:\n{description}\n\n")
+                f.write(f"{'=' * 60}\n\n")
+                f.write("Full Parameters:\n")
+                f.write(json.dumps(arguments, indent=2))
+                f.write("\n")
             
-            # Create a concise message (macOS dialogs work better with shorter text)
-            message = f"Tool: {tool_name}\n\n{description}\n\nParameters:\n{args_text}"
+            # Create a concise message for the dialog
+            # Show just the description and a note about viewing details
+            message = f"{description}\n\n💡 Tip: Click 'View Details' to see full parameters"
             
             # Use a more robust approach: write message to temp file and read it
             # This avoids escaping issues with complex messages
-            import tempfile
             with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
                 f.write(message)
                 temp_msg_file = f.name
             
             # Create AppleScript WITHOUT System Events (no permissions needed!)
-            # Just use display dialog directly - it doesn't require any special permissions
+            # Includes a button to open the details file
             script = f'''
             set msgFile to open for access file POSIX file "{temp_msg_file}"
             set msgContent to read msgFile
             close access msgFile
             
-            -- Simple display dialog (no System Events needed, no permissions required)
-            set response to display dialog msgContent buttons {{"Reject", "Approve"}} default button "Approve" with title "🔒 Approval Required" with icon caution
+            -- Display dialog with three buttons: View Details, Reject, Approve
+            set response to display dialog msgContent buttons {{"Reject", "View Details", "Approve"}} default button "Approve" cancel button "Reject" with title "🔒 Approval Required: {tool_name}" with icon caution
             set buttonPressed to button returned of response
+            
+            if buttonPressed is "View Details" then
+                -- Open the details file in default text editor
+                do shell script "open {details_file}"
+                -- Show dialog again after viewing details
+                set response2 to display dialog msgContent buttons {{"Reject", "Approve"}} default button "Approve" cancel button "Reject" with title "🔒 Approval Required: {tool_name}" with icon caution
+                set buttonPressed to button returned of response2
+            end if
+            
             if buttonPressed is "Approve" then
                 do shell script "echo approved > {approval_file}"
             else

@@ -29,33 +29,32 @@ class ExplainEngine:
         # Get impact assessment first (includes key details like file path)
         impact = self._assess_impact(tool_name, arguments)
         
-        # For file write operations, summarize content instead of showing it
+        # For file write operations, create a concise, natural description
         if "write" in tool_name.lower() or "create" in tool_name.lower():
             if "content" in arguments and isinstance(arguments["content"], str):
                 content = arguments["content"]
                 lines = content.split("\n")
                 char_count = len(content)
+                
+                # Get file path
+                path = arguments.get("path") or arguments.get("file", "unknown file")
+                
+                # Build natural description
                 if char_count > 100:
-                    # Summarize long content
+                    # Long content - summarize
                     if len(lines) > 1:
-                        description = f"{action} ({len(lines)} lines, {char_count} characters)"
+                        description = f"Write {len(lines)} lines ({char_count:,} characters) to {path}"
                     else:
-                        description = f"{action} ({char_count} characters)"
+                        description = f"Write {char_count:,} characters to {path}"
                 else:
-                    # Short content - show first line or snippet
+                    # Short content - show preview
                     first_line = lines[0] if lines else content
-                    if len(first_line) > 60:
-                        description = f"{action} with content: {first_line[:57]}..."
+                    if len(first_line) > 50:
+                        preview = first_line[:47] + "..."
                     else:
-                        description = f"{action} with content: {first_line}"
-                # Add impact (file path)
-                if impact:
-                    # Impact format is "file: {path}" - extract just the path
-                    if impact.startswith("file: "):
-                        path = impact[6:]  # Remove "file: " prefix
-                        description += f" at {path}"
-                    else:
-                        description += f" - {impact}"
+                        preview = first_line
+                    description = f"Write to {path}:\n{preview}"
+                
                 return description
 
         # For other operations, use concise parameter summary
