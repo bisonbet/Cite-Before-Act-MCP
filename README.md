@@ -34,7 +34,7 @@ This provides a standardized "dry-run → approval → execute" workflow that ot
 ### Step 2: Install Cite-Before-Act MCP
 
 ```bash
-git clone https://github.com/yourusername/Cite-Before-Act-MCP.git
+git clone https://github.com/bisonbet/Cite-Before-Act-MCP.git
 cd Cite-Before-Act-MCP
 pip install -e .
 ```
