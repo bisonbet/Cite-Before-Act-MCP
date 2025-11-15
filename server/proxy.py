@@ -484,55 +484,20 @@ class ProxyServer:
         if "error" in response:
             raise RuntimeError(f"Upstream tool call failed: {response['error']}")
 
-        # Extract result content
+        # Pass through the entire result structure as-is
+        # We're a proxy/wrapper - our job is approval interception, not response transformation
+        # The upstream MCP server knows best how to format its responses
         if "result" in response:
             result = response["result"]
-            if "content" in result and len(result["content"]) > 0:
-                content_items = result["content"]
-                
-                # Prioritize resource content (actual file/data content)
-                # over status messages
-                resource_content = None
-                text_content = []
-                
-                for item in content_items:
-                    if isinstance(item, dict):
-                        # Check for resource type (actual content)
-                        if item.get("type") == "resource" and "resource" in item:
-                            resource = item["resource"]
-                            # Extract text from resource if available
-                            if "text" in resource:
-                                resource_content = resource["text"]
-                            elif "data" in resource:
-                                resource_content = resource["data"]
-                            elif "uri" in resource:
-                                # Resource URI - might be useful for reference
-                                resource_content = f"Resource: {resource['uri']}"
-                        # Check for direct text content
-                        elif "text" in item:
-                            text_content.append(item["text"])
-                        elif "data" in item:
-                            text_content.append(item["data"])
-                        else:
-                            # Fallback: string representation
-                            text_content.append(str(item))
-                    else:
-                        text_content.append(str(item))
-                
-                # Return resource content if available (actual file/data)
-                if resource_content:
-                    return resource_content
-                
-                # Otherwise, return combined text content
-                if text_content:
-                    if len(text_content) == 1:
-                        return text_content[0]
-                    # Join multiple text items with newlines
-                    return "\n".join(text_content)
-                
-                # Fallback: return first item as-is
-                return content_items[0]
             
+            # FastMCP expects tool handlers to return the content array directly
+            # (it will wrap it in the MCP result format)
+            # If result has content array, return it so all items are preserved
+            if "content" in result and isinstance(result["content"], list):
+                return result["content"]
+            
+            # Otherwise return the full result structure
+            # FastMCP will handle it appropriately
             return result
 
         return None
