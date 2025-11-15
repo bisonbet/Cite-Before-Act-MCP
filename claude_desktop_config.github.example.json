@@ -1,0 +1,30 @@
+{
+  "mcpServers": {
+    "cite-before-act-github": {
+      "command": "python",
+      "args": [
+        "-m",
+        "server.main",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "SLACK_BOT_TOKEN": "xoxb-your-token-here",
+        "SLACK_CHANNEL": "#approvals",
+        "DETECTION_ALLOWLIST": "",
+        "DETECTION_BLOCKLIST": "read_file,get_file,list_files,search_code,get_issue,list_issues,get_pull_request,list_pull_requests",
+        "DETECTION_ENABLE_CONVENTION": "true",
+        "DETECTION_ENABLE_METADATA": "true",
+        "UPSTREAM_COMMAND": "github-mcp-server",
+        "UPSTREAM_ARGS": "",
+        "UPSTREAM_TRANSPORT": "stdio",
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_your_token_here",
+        "APPROVAL_TIMEOUT_SECONDS": "300",
+        "ENABLE_SLACK": "true",
+        "USE_LOCAL_APPROVAL": "true",
+        "USE_NATIVE_DIALOG": "false"
+      }
+    }
+  }
+}
+

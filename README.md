@@ -76,6 +76,27 @@ The setup wizard will:
 
 **Perfect for:** First-time setup, getting started quickly, automatic configuration
 
+### Adding Additional MCP Servers
+
+Once you have a working setup, you can re-run the setup wizard to add additional upstream MCP servers:
+
+```bash
+python3 setup_wizard.py
+```
+
+When the wizard detects an existing setup, it will offer two options:
+1. **Full Setup** - Reconfigure everything from scratch
+2. **Add New MCP Server** - Add another upstream server configuration (recommended)
+
+The "Add New MCP Server" option will:
+- ✅ Skip venv creation and dependency installation (uses existing setup)
+- ✅ Skip Slack configuration (uses existing settings from `.env`)
+- ✅ Only configure the new upstream MCP server
+- ✅ Merge the new configuration with your existing Claude Desktop config
+- ✅ Generate unique server names (e.g., `cite-before-act-github`, `cite-before-act-filesystem`)
+
+This allows you to have multiple MCP servers wrapped by Cite-Before-Act MCP, each with its own configuration in Claude Desktop.
+
 ### Option 2: Manual Setup
 
 #### Prerequisites
@@ -613,6 +634,68 @@ UPSTREAM_TRANSPORT=http
 UPSTREAM_URL=http://localhost:3010
 UPSTREAM_TRANSPORT=sse
 ```
+
+## Example: GitHub MCP Server
+
+This example demonstrates using Cite-Before-Act MCP with the [GitHub MCP Server](https://github.com/github/github-mcp-server) to require approval for mutating GitHub operations.
+
+### Quick Setup
+
+1. **Install GitHub MCP Server**: Download from [GitHub Releases](https://github.com/github/github-mcp-server/releases) and add to PATH
+
+2. **Create GitHub Personal Access Token**: Get a token at https://github.com/settings/tokens with required scopes
+
+3. **Configure Claude Desktop**: Use the example configuration:
+
+```json
+{
+  "mcpServers": {
+    "cite-before-act-github": {
+      "command": "/path/to/venv/bin/python",
+      "args": ["-m", "server.main", "--transport", "stdio"],
+      "env": {
+        "UPSTREAM_COMMAND": "github-mcp-server",
+        "UPSTREAM_ARGS": "",
+        "UPSTREAM_TRANSPORT": "stdio",
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_your_token_here",
+        "DETECTION_ENABLE_CONVENTION": "true",
+        "DETECTION_ENABLE_METADATA": "true",
+        "USE_LOCAL_APPROVAL": "true",
+        "USE_NATIVE_DIALOG": "true"
+      }
+    }
+  }
+}
+```
+
+### What Gets Detected
+
+The system automatically detects and requires approval for:
+- **Repository operations**: `create_repository`, `delete_repository`, `update_repository`
+- **File operations**: `create_file`, `update_file`, `delete_file`
+- **Issue operations**: `create_issue`, `update_issue`, `add_issue_comment`, `close_issue`
+- **Pull request operations**: `create_pull_request`, `merge_pull_request`, `close_pull_request`
+- **Branch operations**: `create_branch`, `delete_branch`
+- **Release operations**: `create_release`, `update_release`, `delete_release`
+- **Social operations**: `star_repository`, `unstar_repository`
+- And many more mutating operations...
+
+**Read-only operations** (automatically allowed):
+- `get_file`, `list_files`, `get_issue`, `list_issues`, `search_code`, etc.
+
+### Example Workflow
+
+1. User: "Create a new issue in my repo about fixing the login bug"
+2. Cite-Before-Act intercepts `create_issue` tool call
+3. Detection engine identifies it as mutating (via `create_` prefix)
+4. Explain engine generates preview: "Create issue in owner/repo: Fix login bug"
+5. Approval dialog appears
+6. User approves
+7. Issue is created
+
+### Full Documentation
+
+See [`examples/github_mcp_example.md`](examples/github_mcp_example.md) for complete setup instructions, Docker configuration, troubleshooting, and advanced options.
 
 ## Advanced Usage
 

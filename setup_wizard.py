@@ -502,9 +502,10 @@ def configure_upstream() -> Dict[str, Any]:
     print("\nThe upstream server is the MCP server you want to wrap with approval requirements.")
     print("\nCommon examples:")
     print("1. Filesystem Server (official MCP filesystem server)")
-    print("2. Custom Server (your own MCP server)")
+    print("2. GitHub MCP Server (GitHub's official MCP server)")
+    print("3. Custom Server (your own MCP server)")
 
-    choice = prompt("Choose option (1/2)", "1")
+    choice = prompt("Choose option (1/2/3)", "1")
 
     if choice == "1":
         # Filesystem server
@@ -526,6 +527,57 @@ def configure_upstream() -> Dict[str, Any]:
             "args": ["-y", "@modelcontextprotocol/server-filesystem", str(workspace_path)],
             "transport": "stdio"
         }
+    elif choice == "2":
+        # GitHub MCP server
+        print("\nGitHub MCP Server Setup:")
+        print("This will use: github-mcp-server")
+        print("\nYou'll need:")
+        print("1. GitHub MCP Server binary (download from https://github.com/github/github-mcp-server/releases)")
+        print("2. GitHub Personal Access Token (create at https://github.com/settings/tokens)")
+
+        # Check if github-mcp-server is in PATH
+        import shutil
+        github_mcp_path = shutil.which("github-mcp-server")
+        if github_mcp_path:
+            print_success(f"Found github-mcp-server at: {github_mcp_path}")
+            command = "github-mcp-server"
+        else:
+            print_warning("github-mcp-server not found in PATH")
+            custom_path = prompt("Enter full path to github-mcp-server binary (or press Enter to use 'github-mcp-server')", "")
+            if custom_path:
+                command = custom_path
+            else:
+                command = "github-mcp-server"
+                print_warning("Using 'github-mcp-server' - ensure it's in PATH or configuration will fail")
+
+        # Get GitHub token
+        print("\nGitHub Personal Access Token:")
+        print("Required scopes: repo, workflow, write:packages, delete:packages, admin:org, etc.")
+        print("Or use minimal scopes needed for your use case")
+        token = prompt("GitHub Personal Access Token", "")
+        
+        if not token:
+            print_warning("No token provided. You'll need to set GITHUB_PERSONAL_ACCESS_TOKEN in your .env file")
+
+        # Optional: additional args
+        print("\nOptional GitHub MCP Server flags:")
+        print("Common options: --read-only, --lockdown-mode, --dynamic-toolsets")
+        additional_args_str = prompt("Additional arguments (comma-separated, or press Enter for none)", "")
+        args = []
+        if additional_args_str:
+            args = [arg.strip() for arg in additional_args_str.split(",")]
+
+        config = {
+            "command": command,
+            "args": args,
+            "transport": "stdio"
+        }
+
+        # Store token in a way that will be added to env
+        # We'll handle this in generate_env_file and generate_claude_config
+        config["github_token"] = token
+
+        return config
     else:
         # Custom server
         print("\nCustom Server Setup:")
@@ -565,9 +617,27 @@ def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], upstream_
         "# Detection Settings",
         "# Allowlist: Explicitly mark these tools as mutating (additive, not exclusive)",
         "# Convention and metadata detection will still work for other tools",
-        "DETECTION_ALLOWLIST=write_file,edit_file,create_directory,move_file",
-        "# Blocklist: Explicitly mark these tools as non-mutating (override convention/metadata)",
-        "DETECTION_BLOCKLIST=read_text_file,read_media_file,list_directory,get_file_info",
+    ]
+    
+    # Set defaults based on upstream server type
+    is_github = upstream_config.get("command") == "github-mcp-server" or "github" in upstream_config.get("command", "").lower()
+    
+    if is_github:
+        # GitHub MCP server defaults
+        lines.extend([
+            "DETECTION_ALLOWLIST=",
+            "# Blocklist: Explicitly mark these tools as non-mutating (override convention/metadata)",
+            "DETECTION_BLOCKLIST=read_file,get_file,list_files,search_code,get_issue,list_issues,get_pull_request,list_pull_requests",
+        ])
+    else:
+        # Filesystem server defaults
+        lines.extend([
+            "DETECTION_ALLOWLIST=write_file,edit_file,create_directory,move_file",
+            "# Blocklist: Explicitly mark these tools as non-mutating (override convention/metadata)",
+            "DETECTION_BLOCKLIST=read_text_file,read_media_file,list_directory,get_file_info",
+        ])
+    
+    lines.extend([
         "DETECTION_ENABLE_CONVENTION=true",
         "DETECTION_ENABLE_METADATA=true",
         "",
@@ -580,11 +650,19 @@ def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], upstream_
         f"UPSTREAM_ARGS={','.join(upstream_config['args'])}",
         f"UPSTREAM_TRANSPORT={upstream_config['transport']}",
         "",
-    ]
+    ])
 
     if upstream_config.get("url"):
         lines.append(f"UPSTREAM_URL={upstream_config['url']}")
         lines.append("")
+    
+    # Add GitHub token if provided
+    if upstream_config.get("github_token"):
+        lines.extend([
+            "# GitHub MCP Server Configuration",
+            f"GITHUB_PERSONAL_ACCESS_TOKEN={upstream_config['github_token']}",
+            "",
+        ])
 
     if slack_config["enabled"]:
         lines.extend([
@@ -632,6 +710,9 @@ def generate_claude_config(project_dir: Path, venv_dir: Path, slack_config: Dict
     """Generate Claude Desktop MCP configuration."""
     python_exe = get_venv_python(venv_dir)
 
+    # Set defaults based on upstream server type
+    is_github = upstream_config.get("command") == "github-mcp-server" or "github" in upstream_config.get("command", "").lower()
+    
     env = {
         # Upstream server configuration
         "UPSTREAM_COMMAND": upstream_config["command"],
@@ -640,8 +721,8 @@ def generate_claude_config(project_dir: Path, venv_dir: Path, slack_config: Dict
         
         # Detection settings
         # Allowlist is additive - convention/metadata detection still works for other tools
-        "DETECTION_ALLOWLIST": "write_file,edit_file,create_directory,move_file",
-        "DETECTION_BLOCKLIST": "read_text_file,read_media_file,list_directory,get_file_info",
+        "DETECTION_ALLOWLIST": "" if is_github else "write_file,edit_file,create_directory,move_file",
+        "DETECTION_BLOCKLIST": "read_file,get_file,list_files,search_code,get_issue,list_issues,get_pull_request,list_pull_requests" if is_github else "read_text_file,read_media_file,list_directory,get_file_info",
         "DETECTION_ENABLE_CONVENTION": "true",
         "DETECTION_ENABLE_METADATA": "true",
         
@@ -653,6 +734,10 @@ def generate_claude_config(project_dir: Path, venv_dir: Path, slack_config: Dict
     # Add upstream URL if provided
     if upstream_config.get("url"):
         env["UPSTREAM_URL"] = upstream_config["url"]
+    
+    # Add GitHub token if provided
+    if upstream_config.get("github_token"):
+        env["GITHUB_PERSONAL_ACCESS_TOKEN"] = upstream_config["github_token"]
     
     # Slack configuration
     if slack_config.get("enabled"):
@@ -683,11 +768,24 @@ def generate_claude_config(project_dir: Path, venv_dir: Path, slack_config: Dict
 
 
 def save_claude_config(config: Dict[str, Any], project_dir: Path) -> None:
-    """Save Claude Desktop configuration to file."""
+    """Save Claude Desktop configuration to file.
+    
+    Args:
+        config: Configuration dict. If it already has "mcpServers" key, use as-is.
+                Otherwise, treat the dict as mcpServers content.
+        project_dir: Project directory path
+    """
     config_path = project_dir / "claude_desktop_config_generated.json"
 
+    # If config already has mcpServers key, use it directly
+    if "mcpServers" in config:
+        output_config = config
+    else:
+        # Otherwise, wrap it
+        output_config = {"mcpServers": config}
+
     with open(config_path, "w") as f:
-        json.dump({"mcpServers": config}, f, indent=2)
+        json.dump(output_config, f, indent=2)
 
     print_success(f"Saved configuration: {config_path}")
 
@@ -922,90 +1020,249 @@ def print_final_instructions(project_dir: Path, slack_config: Dict[str, Any], ng
     print(f"\n📚 For more information, see: {Colors.CYAN}README.md{Colors.END}\n")
 
 
+def check_setup_complete(project_dir: Path) -> bool:
+    """Check if setup is already complete."""
+    venv_dir = project_dir / ".venv"
+    venv_python = venv_dir / "bin" / "python"
+    if platform.system() == "Windows":
+        venv_python = venv_dir / "Scripts" / "python.exe"
+    
+    # Check if venv exists and has Python
+    if not venv_python.exists():
+        return False
+    
+    # Check if package is installed
+    try:
+        result = run_command(
+            [str(venv_python), "-m", "pip", "show", "cite-before-act-mcp"],
+            check=False
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def load_existing_claude_config(project_dir: Path) -> Optional[Dict[str, Any]]:
+    """Load existing Claude Desktop configuration if it exists.
+    
+    Returns:
+        Dictionary of existing server configurations (mcpServers content),
+        or None if no config exists
+    """
+    config_path = project_dir / "claude_desktop_config_generated.json"
+    if not config_path.exists():
+        return None
+    
+    try:
+        with open(config_path, "r") as f:
+            data = json.load(f)
+            # Handle both formats: {"mcpServers": {...}} or direct mcpServers dict
+            if "mcpServers" in data:
+                return data["mcpServers"]
+            # If it's already the mcpServers content, return as-is
+            return data
+    except Exception:
+        return None
+
+
+def generate_server_name(upstream_config: Dict[str, Any], existing_config: Optional[Dict[str, Any]]) -> str:
+    """Generate a unique server name for the new configuration."""
+    base_name = "cite-before-act"
+    
+    # Determine base name from upstream server type
+    command = upstream_config.get("command", "").lower()
+    if "github" in command or "github-mcp-server" in command:
+        base_name = "cite-before-act-github"
+    elif "filesystem" in command or "server-filesystem" in " ".join(upstream_config.get("args", [])).lower():
+        base_name = "cite-before-act-filesystem"
+    
+    # If no existing config, use base name
+    if not existing_config:
+        return base_name
+    
+    # Check if base name is available
+    if base_name not in existing_config:
+        return base_name
+    
+    # Find a unique name by appending a number
+    counter = 2
+    while f"{base_name}-{counter}" in existing_config:
+        counter += 1
+    
+    return f"{base_name}-{counter}"
+
+
+def merge_claude_config(existing_config: Optional[Dict[str, Any]], new_config: Dict[str, Any], server_name: str) -> Dict[str, Any]:
+    """Merge new configuration with existing Claude Desktop configuration."""
+    if not existing_config:
+        return {server_name: new_config}
+    
+    merged = existing_config.copy()
+    merged[server_name] = new_config
+    return merged
+
+
 def main():
     """Main setup function."""
     print_header("Cite-Before-Act MCP - Interactive Setup")
 
-    print("This wizard will guide you through setting up Cite-Before-Act MCP.\n")
-    print("We'll configure:")
-    print("  • Python virtual environment")
-    print("  • Dependencies")
-    print("  • Slack integration (optional)")
-    print("  • Webhook server with ngrok (optional)")
-    print("  • Claude Desktop configuration")
-    print()
-
-    if not prompt_yes_no("Ready to begin?", default=True):
-        print("Setup cancelled.")
-        return 1
-
     # Get project directory
     project_dir = Path(__file__).parent.resolve()
-
-    # Step 1: Check prerequisites and select Python
-    print_step(1, 7, "Selecting Python Version")
-
-    python_exe = select_python_version()
-    if not python_exe:
-        return 1
-
-    # Warn if running with a different Python version than selected
-    current_python = sys.executable
-    if current_python != python_exe:
-        current_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-        print_warning(f"Script is running with Python {current_version} ({current_python})")
-        print_warning(f"But will create venv with: {python_exe}")
-        print_warning("This is usually fine, but if you encounter issues, try running the script")
-        print_warning(f"with the selected Python: {python_exe} setup_wizard.py")
+    
+    # Check if setup is already complete
+    setup_complete = check_setup_complete(project_dir)
+    existing_claude_config = load_existing_claude_config(project_dir)
+    
+    mode = "full"
+    if setup_complete:
+        print("Detected existing setup. Choose an option:\n")
+        print("  1. Full Setup (reconfigure everything)")
+        print("  2. Add New MCP Server (add another upstream server configuration)")
+        print()
+        
+        choice = prompt("Choose option (1/2)", "2")
+        if choice == "1":
+            mode = "full"
+            print("\nProceeding with full setup...")
+        else:
+            mode = "add_server"
+            print("\nAdding new MCP server configuration...")
+            print("(Skipping venv creation, dependency installation, and Slack setup)\n")
+    
+    if mode == "full":
+        print("This wizard will guide you through setting up Cite-Before-Act MCP.\n")
+        print("We'll configure:")
+        print("  • Python virtual environment")
+        print("  • Dependencies")
+        print("  • Slack integration (optional)")
+        print("  • Webhook server with ngrok (optional)")
+        print("  • Claude Desktop configuration")
         print()
 
-    print()
-    has_node = check_node_installed()
-    if not has_node:
-        print_warning("Node.js is recommended for upstream MCP servers")
-        if not prompt_yes_no("Continue without Node.js?", default=False):
-            print("\nInstall Node.js from: https://nodejs.org/")
+        if not prompt_yes_no("Ready to begin?", default=True):
+            print("Setup cancelled.")
             return 1
 
-    # Step 2: Create virtual environment
-    print_step(2, 7, "Creating Virtual Environment")
-    venv_dir = create_venv(project_dir, python_exe)
+    if mode == "full":
+        # Step 1: Check prerequisites and select Python
+        print_step(1, 7, "Selecting Python Version")
 
-    # Step 3: Install dependencies
-    print_step(3, 7, "Installing Dependencies")
-    install_dependencies(venv_dir, project_dir)
+        python_exe = select_python_version()
+        if not python_exe:
+            return 1
 
-    # Step 4: Configure Slack
-    print_step(4, 7, "Configuring Slack Integration")
-    slack_config = configure_slack()
+        # Warn if running with a different Python version than selected
+        current_python = sys.executable
+        if current_python != python_exe:
+            current_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+            print_warning(f"Script is running with Python {current_version} ({current_python})")
+            print_warning(f"But will create venv with: {python_exe}")
+            print_warning("This is usually fine, but if you encounter issues, try running the script")
+            print_warning(f"with the selected Python: {python_exe} setup_wizard.py")
+            print()
 
-    # Step 5: Configure ngrok (if needed)
-    print_step(5, 7, "Configuring ngrok")
-    ngrok_config = configure_ngrok(slack_config)
+        print()
+        has_node = check_node_installed()
+        if not has_node:
+            print_warning("Node.js is recommended for upstream MCP servers")
+            if not prompt_yes_no("Continue without Node.js?", default=False):
+                print("\nInstall Node.js from: https://nodejs.org/")
+                return 1
 
-    # Step 6: Configure upstream server
-    print_step(6, 7, "Configuring Upstream MCP Server")
-    upstream_config = configure_upstream()
+        # Step 2: Create virtual environment
+        print_step(2, 7, "Creating Virtual Environment")
+        venv_dir = create_venv(project_dir, python_exe)
 
-    # Step 7: Generate configuration files
-    print_step(7, 7, "Generating Configuration Files")
+        # Step 3: Install dependencies
+        print_step(3, 7, "Installing Dependencies")
+        install_dependencies(venv_dir, project_dir)
 
-    # Generate .env
-    generate_env_file(project_dir, slack_config, upstream_config)
+        # Step 4: Configure Slack
+        print_step(4, 7, "Configuring Slack Integration")
+        slack_config = configure_slack()
 
-    # Generate Claude Desktop config
-    claude_config = generate_claude_config(project_dir, venv_dir, slack_config, upstream_config)
-    save_claude_config(claude_config, project_dir)
+        # Step 5: Configure ngrok (if needed)
+        print_step(5, 7, "Configuring ngrok")
+        ngrok_config = configure_ngrok(slack_config)
 
-    # Create ngrok policy if needed
-    if ngrok_config and slack_config.get("signing_secret"):
-        create_ngrok_policy(project_dir, slack_config["signing_secret"])
+        # Step 6: Configure upstream server
+        print_step(6, 7, "Configuring Upstream MCP Server")
+        upstream_config = configure_upstream()
 
-    # Create startup scripts
-    create_startup_scripts(project_dir, venv_dir, slack_config, ngrok_config)
+        # Step 7: Generate configuration files
+        print_step(7, 7, "Generating Configuration Files")
 
-    # Print final instructions
-    print_final_instructions(project_dir, slack_config, ngrok_config, claude_config)
+        # Generate .env
+        generate_env_file(project_dir, slack_config, upstream_config)
+
+        # Generate Claude Desktop config
+        server_name = generate_server_name(upstream_config, existing_claude_config)
+        claude_config_entry = generate_claude_config(project_dir, venv_dir, slack_config, upstream_config)
+        merged_config = merge_claude_config(existing_claude_config, claude_config_entry["cite-before-act"], server_name)
+        save_claude_config({"mcpServers": merged_config}, project_dir)
+
+        # Create ngrok policy if needed
+        if ngrok_config and slack_config.get("signing_secret"):
+            create_ngrok_policy(project_dir, slack_config["signing_secret"])
+
+        # Create startup scripts
+        create_startup_scripts(project_dir, venv_dir, slack_config, ngrok_config)
+
+        # Print final instructions
+        print_final_instructions(project_dir, slack_config, ngrok_config, {"mcpServers": merged_config})
+
+    else:
+        # Add new server mode
+        # Use existing venv
+        venv_dir = project_dir / ".venv"
+        venv_python = venv_dir / "bin" / "python"
+        if platform.system() == "Windows":
+            venv_python = venv_dir / "Scripts" / "python.exe"
+        
+        if not venv_python.exists():
+            print_error("Virtual environment not found. Please run full setup first.")
+            return 1
+        
+        # Load existing Slack config from .env if it exists
+        slack_config = {"enabled": False}
+        env_path = project_dir / ".env"
+        if env_path.exists():
+            # Try to load Slack config from .env
+            with open(env_path, "r") as f:
+                for line in f:
+                    if line.startswith("ENABLE_SLACK="):
+                        slack_config["enabled"] = line.split("=", 1)[1].strip().lower() == "true"
+                    elif line.startswith("SLACK_BOT_TOKEN="):
+                        slack_config["bot_token"] = line.split("=", 1)[1].strip()
+                    elif line.startswith("SLACK_CHANNEL="):
+                        slack_config["channel"] = line.split("=", 1)[1].strip()
+                    elif line.startswith("SLACK_USER_ID="):
+                        slack_config["user_id"] = line.split("=", 1)[1].strip()
+        
+        # Configure upstream server
+        print_step(1, 2, "Configuring Upstream MCP Server")
+        upstream_config = configure_upstream()
+        
+        # Generate configuration
+        print_step(2, 2, "Generating Configuration")
+        
+        # Generate Claude Desktop config entry
+        server_name = generate_server_name(upstream_config, existing_claude_config)
+        claude_config_entry = generate_claude_config(project_dir, venv_dir, slack_config, upstream_config)
+        merged_config = merge_claude_config(existing_claude_config, claude_config_entry["cite-before-act"], server_name)
+        save_claude_config({"mcpServers": merged_config}, project_dir)
+        
+        print_success(f"Added new MCP server configuration: {server_name}")
+        print(f"\n{Colors.BOLD}Next Steps:{Colors.END}")
+        print(f"1. Review the generated configuration:")
+        print(f"   {Colors.CYAN}claude_desktop_config_generated.json{Colors.END}")
+        print(f"2. Copy the '{server_name}' entry to your Claude Desktop config file")
+        print(f"3. Restart Claude Desktop")
+        
+        if existing_claude_config:
+            print(f"\n{Colors.YELLOW}Note:{Colors.END} Your existing configurations are preserved:")
+            for existing_name in existing_claude_config.keys():
+                print(f"  • {existing_name}")
 
     return 0
 
