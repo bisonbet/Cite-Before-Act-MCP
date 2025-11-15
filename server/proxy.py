@@ -191,49 +191,85 @@ class ProxyServer:
             properties = input_schema.get("properties", {})
             param_names = list(properties.keys())
             
-            # Create a function with explicit parameters using exec
-            # FastMCP requires explicit parameters, not **kwargs
-            if param_names:
-                # Build function signature with all parameters
-                params_str = ", ".join(param_names)
-                # Build code to collect parameters into dict
-                collect_code = "arguments = {" + ", ".join([f"'{p}': {p}" for p in param_names]) + "}"
-            else:
-                params_str = ""
-                collect_code = "arguments = {}"
-            
-            # Capture variables for closure
+            # Capture variables in closure (before creating function)
             name = tool_name
             desc = tool_info.get("description", "")
             schema = input_schema
             middleware_ref = self.middleware
             tools_ref = self.upstream_tools
             
-            # Create function dynamically
-            func_def = f"""
-async def handler({params_str}):
-    \"\"\"{desc}\"\"\"
-    {collect_code}
-    if not middleware_ref:
+            # Create a function with explicit parameters
+            # FastMCP requires explicit parameters, not **kwargs
+            if param_names:
+                # Build function signature with all parameters
+                params_str = ", ".join(param_names)
+                # Build code to collect parameters into dict
+                collect_parts = [f"'{p}': {p}" for p in param_names]
+                collect_code = "arguments = {" + ", ".join(collect_parts) + "}"
+            else:
+                params_str = ""
+                collect_code = "arguments = {}"
+            
+            # Create function using a factory that properly captures closure
+            # The key is to make sure variables are captured from the function parameters
+            def create_handler(
+                tool_name_inner: str,
+                tool_desc_inner: str,
+                tool_schema_inner: dict,
+                middleware_inner: Middleware,
+                tools_dict: dict,
+                param_list: list,
+                collect_code_inner: str,
+            ):
+                # Build the function body - variables are in create_handler's scope
+                if param_list:
+                    params_str_inner = ", ".join(param_list)
+                else:
+                    params_str_inner = ""
+                
+                # Create function code that references variables from create_handler's scope
+                # These will be captured in the closure when we exec
+                func_code = f"""async def handler({params_str_inner}):
+    \"\"\"{tool_desc_inner}\"\"\"
+    {collect_code_inner}
+    # Reference variables from outer scope (create_handler parameters)
+    if not middleware_inner:
         raise RuntimeError("Middleware not initialized")
-    tool_desc = tools_ref.get(name, {{}}).get("description", "")
-    return await middleware_ref.call_tool(
-        tool_name=name,
+    tool_desc = tools_dict.get(tool_name_inner, {{}}).get("description", "")
+    return await middleware_inner.call_tool(
+        tool_name=tool_name_inner,
         arguments=arguments,
         tool_description=tool_desc,
-        tool_schema=schema,
+        tool_schema=tool_schema_inner,
     )
 """
-            # Execute in local namespace
-            local_ns = {
-                "middleware_ref": middleware_ref,
-                "tools_ref": tools_ref,
-                "name": name,
-                "schema": schema,
-                "asyncio": asyncio,
-            }
-            exec(func_def, {"asyncio": asyncio}, local_ns)
-            handler = local_ns["handler"]
+                # Execute in local namespace
+                # The key is to put variables in globals so the function can access them
+                # When exec creates a function, it looks in globals for free variables
+                globals_dict = {
+                    "asyncio": asyncio,
+                    "middleware_inner": middleware_inner,
+                    "tools_dict": tools_dict,
+                    "tool_name_inner": tool_name_inner,
+                    "tool_schema_inner": tool_schema_inner,
+                }
+                local_vars = {}
+                exec(func_code, globals_dict, local_vars)
+                handler_func = local_vars["handler"]
+                
+                # The function should now have access to the variables via globals
+                return handler_func
+            
+            # Create the handler with proper closure
+            handler = create_handler(
+                name,
+                desc,
+                schema,
+                middleware_ref,
+                tools_ref,
+                param_names,
+                collect_code,
+            )
             
             # Register with FastMCP
             self.mcp.tool(name=tool_name, description=desc)(handler)
