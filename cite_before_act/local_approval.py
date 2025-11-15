@@ -174,7 +174,8 @@ class LocalApproval:
             
             # Create a concise message for the dialog
             # Show just the description and a note about viewing details
-            message = f"{description}\n\n💡 Tip: Click 'View Details' to see full parameters"
+            # Note: Don't use emojis in AppleScript dialogs - they don't render properly
+            message = f"{description}\n\nTip: Click 'View Details' to see full parameters"
             
             # Use a more robust approach: write message to temp file and read it
             # This avoids escaping issues with complex messages
