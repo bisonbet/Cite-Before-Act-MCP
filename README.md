@@ -93,7 +93,12 @@ The "Add New MCP Server" option will:
 - ✅ Skip Slack configuration (uses existing settings from `.env`)
 - ✅ Only configure the new upstream MCP server
 - ✅ Merge the new configuration with your existing Claude Desktop config
-- ✅ Generate unique server names (e.g., `cite-before-act-github`, `cite-before-act-filesystem`)
+- ✅ Generate descriptive server names (e.g., `github-cite`, `filesystem-cite`, `custom-server-cite`)
+
+**Server Naming:** Server names follow the pattern `{upstream-server-name}-cite` to make it clear which upstream MCP server is being wrapped. For example:
+- `github-cite` - Wraps the GitHub MCP server
+- `filesystem-cite` - Wraps the filesystem MCP server  
+- `custom-server-cite` - Wraps a custom MCP server
 
 This allows you to have multiple MCP servers wrapped by Cite-Before-Act MCP, each with its own configuration in Claude Desktop.
 

@@ -1068,15 +1068,71 @@ def load_existing_claude_config(project_dir: Path) -> Optional[Dict[str, Any]]:
 
 
 def generate_server_name(upstream_config: Dict[str, Any], existing_config: Optional[Dict[str, Any]]) -> str:
-    """Generate a unique server name for the new configuration."""
-    base_name = "cite-before-act"
+    """Generate a unique server name for the new configuration.
     
-    # Determine base name from upstream server type
+    Format: {upstream-server-name}-cite
+    Examples: github-cite, filesystem-cite, custom-server-cite
+    
+    Args:
+        upstream_config: Upstream server configuration
+        existing_config: Existing Claude Desktop config (for uniqueness check)
+    
+    Returns:
+        Unique server name like 'github-cite' or 'filesystem-cite'
+    """
+    # Extract upstream server name from command/args
     command = upstream_config.get("command", "").lower()
+    args_str = " ".join(upstream_config.get("args", [])).lower()
+    combined = f"{command} {args_str}"
+    
+    # Determine upstream server name
+    upstream_name = None
+    
+    # Check for known servers
     if "github" in command or "github-mcp-server" in command:
-        base_name = "cite-before-act-github"
-    elif "filesystem" in command or "server-filesystem" in " ".join(upstream_config.get("args", [])).lower():
-        base_name = "cite-before-act-filesystem"
+        upstream_name = "github"
+    elif "filesystem" in command or "server-filesystem" in combined:
+        upstream_name = "filesystem"
+    elif "npx" in command and "@modelcontextprotocol/server-filesystem" in args_str:
+        upstream_name = "filesystem"
+    else:
+        # For custom servers, try to extract a meaningful name
+        # Remove common prefixes/suffixes and file extensions
+        if command:
+            # Use the command name (without path)
+            upstream_name = Path(command).stem.lower()
+            # Remove common prefixes
+            upstream_name = upstream_name.replace("mcp-", "").replace("server-", "").replace("-server", "")
+            # If it's still too generic, try to get something from args
+            if upstream_name in ("python", "node", "npx", "npm", "go", "rust"):
+                # Look for package/server name in args
+                for arg in upstream_config.get("args", []):
+                    arg_lower = arg.lower()
+                    if "server" in arg_lower or "mcp" in arg_lower:
+                        # Extract meaningful part
+                        parts = arg_lower.replace("@", "").replace("/", "-").split("-")
+                        # Find the most meaningful part (usually the last non-generic part)
+                        for part in reversed(parts):
+                            if part and part not in ("server", "mcp", "protocol", "model", "context"):
+                                upstream_name = part
+                                break
+                        break
+        else:
+            upstream_name = "custom"
+    
+    # Sanitize the name (remove invalid characters, ensure it's a valid identifier)
+    upstream_name = upstream_name.replace("_", "-").replace(" ", "-")
+    # Remove any remaining invalid characters
+    upstream_name = "".join(c for c in upstream_name if c.isalnum() or c == "-")
+    # Remove leading/trailing dashes and collapse multiple dashes
+    upstream_name = "-".join(part for part in upstream_name.split("-") if part)
+    
+    # If we couldn't determine a name, use a default
+    if not upstream_name or upstream_name == "-":
+        upstream_name = "mcp"
+    
+    # Create base name with -cite suffix
+    base_name = f"{upstream_name}-cite"
     
     # If no existing config, use base name
     if not existing_config:
