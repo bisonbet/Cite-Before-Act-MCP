@@ -97,6 +97,9 @@ SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET")
 PORT = int(os.getenv("PORT", 3000))
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+# Host binding: localhost for ngrok (local mode), configurable for production
+# When using ngrok, only listen on localhost since ngrok tunnels to it
+HOST = os.getenv("HOST", "127.0.0.1" if SECURITY_MODE == "local" else "0.0.0.0")
 
 # Rate limiting configuration (production mode only)
 RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", 60))  # seconds
@@ -351,6 +354,7 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"🔒 Slack Webhook Server - {SECURITY_MODE.upper()} MODE")
     print("=" * 60)
+    print(f"Host: {HOST}")
     print(f"Port: {PORT}")
     print(f"Debug: {DEBUG}")
 
@@ -387,5 +391,20 @@ if __name__ == "__main__":
         print(f"   https://your-domain.com/slack/interactive")
     print("=" * 60)
     print()
+    
+    # Flask's built-in server is fine for ngrok (local mode) since it only handles localhost
+    # For production deployments, users should use a proper WSGI server (gunicorn, waitress, etc.)
+    # Set environment variable to reduce Flask warnings
+    os.environ["FLASK_ENV"] = "production" if SECURITY_MODE == "production" else "development"
+    
+    if SECURITY_MODE == "production":
+        print("⚠️  Note: For production deployments, consider using a WSGI server like gunicorn:")
+        print("   pip install gunicorn")
+        print("   gunicorn -w 4 -b 0.0.0.0:3000 examples.slack_webhook_server:app")
+        print()
+        print("   Running with Flask's built-in server (acceptable for low-traffic webhooks)")
+        print()
 
-    app.run(port=PORT, debug=DEBUG, host="0.0.0.0")
+    # Run the server
+    # use_reloader=False prevents reloader-related warnings
+    app.run(port=PORT, debug=DEBUG, host=HOST, use_reloader=False)

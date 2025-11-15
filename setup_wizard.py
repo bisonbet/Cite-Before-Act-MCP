@@ -604,8 +604,10 @@ def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], upstream_
 
             if slack_config.get("webhook_hosting") == "self-hosted":
                 lines.append("SECURITY_MODE=production")
+                lines.append("HOST=0.0.0.0  # Listen on all interfaces for production")
             else:
                 lines.append("SECURITY_MODE=local")
+                lines.append("HOST=127.0.0.1  # Only localhost when using ngrok")
         
         # Set USE_NATIVE_DIALOG based on Slack being enabled
         # When Slack is enabled, disable native dialog to avoid duplicates
