@@ -16,6 +16,79 @@ class DetectionStrategy(Enum):
 class DetectionEngine:
     """Multi-strategy engine for detecting mutating tools."""
 
+    # Common read-only prefixes (these are automatically non-mutating)
+    READ_ONLY_PREFIXES = {
+        "get_",
+        "read_",
+        "list_",
+        "search_",
+        "find_",
+        "query_",
+        "fetch_",
+        "retrieve_",
+        "show_",
+        "display_",
+        "view_",
+        "describe_",
+        "info_",
+        "status_",
+        "check_",
+        "verify_",
+        "validate_",
+        "exists_",
+        "count_",
+        "stat_",
+    }
+
+    # Common read-only suffixes
+    READ_ONLY_SUFFIXES = {
+        "_get",
+        "_read",
+        "_list",
+        "_search",
+        "_find",
+        "_query",
+        "_fetch",
+        "_retrieve",
+        "_show",
+        "_display",
+        "_view",
+        "_describe",
+        "_info",
+        "_status",
+        "_check",
+        "_verify",
+        "_validate",
+    }
+
+    # Keywords in descriptions that suggest read-only operations
+    READ_ONLY_KEYWORDS = {
+        "read",
+        "get",
+        "list",
+        "search",
+        "find",
+        "query",
+        "fetch",
+        "retrieve",
+        "show",
+        "display",
+        "view",
+        "describe",
+        "info",
+        "information",
+        "status",
+        "check",
+        "verify",
+        "validate",
+        "exists",
+        "count",
+        "stat",
+        "statistics",
+        "read-only",
+        "readonly",
+    }
+
     # Common mutating prefixes
     MUTATING_PREFIXES = {
         # File/resource operations
@@ -164,19 +237,24 @@ class DetectionEngine:
         Returns:
             True if tool is detected as mutating, False otherwise
         """
-        # Check allowlist first (highest priority - explicit mutating)
-        if self.allowlist and tool_name in self.allowlist:
-            return True
-
-        # Check blocklist (explicit non-mutating - highest priority override)
+        # Check blocklist first (explicit non-mutating - highest priority override)
         if self.blocklist and tool_name in self.blocklist:
             return False
 
-        # Convention-based detection (works for any tool, not just allowlist)
+        # Check for read-only patterns (automatic non-mutating detection)
+        # This should come before mutating detection to catch read-only operations
+        if self._check_read_only(tool_name, tool_description, tool_schema):
+            return False
+
+        # Check allowlist (explicit mutating - high priority)
+        if self.allowlist and tool_name in self.allowlist:
+            return True
+
+        # Convention-based detection for mutating (works for any tool)
         if self.enable_convention and self._check_convention(tool_name):
             return True
 
-        # Metadata-based detection (works for any tool, not just allowlist)
+        # Metadata-based detection for mutating (works for any tool)
         if self.enable_metadata:
             description = tool_description or ""
             if tool_schema:
@@ -186,6 +264,46 @@ class DetectionEngine:
 
         # Default: if no strategies match, assume non-mutating (safe default)
         # Note: Allowlist is additive - it doesn't prevent convention/metadata detection
+        return False
+
+    def _check_read_only(
+        self,
+        tool_name: str,
+        tool_description: Optional[str] = None,
+        tool_schema: Optional[dict] = None,
+    ) -> bool:
+        """Check if tool is read-only using naming conventions and metadata.
+
+        Args:
+            tool_name: Name of the tool
+            tool_description: Optional description of the tool
+            tool_schema: Optional JSON schema of the tool
+
+        Returns:
+            True if tool appears to be read-only, False otherwise
+        """
+        tool_name_lower = tool_name.lower()
+
+        # Check read-only prefixes
+        for prefix in self.READ_ONLY_PREFIXES:
+            if tool_name_lower.startswith(prefix):
+                return True
+
+        # Check read-only suffixes
+        for suffix in self.READ_ONLY_SUFFIXES:
+            if tool_name_lower.endswith(suffix):
+                return True
+
+        # Check description for read-only keywords
+        description = tool_description or ""
+        if tool_schema:
+            description += " " + str(tool_schema.get("description", ""))
+        
+        description_lower = description.lower()
+        for keyword in self.READ_ONLY_KEYWORDS:
+            if keyword in description_lower:
+                return True
+
         return False
 
     def _check_convention(self, tool_name: str) -> bool:
