@@ -117,6 +117,21 @@ class ProxyServer:
         upstream_config = self.settings.upstream
 
         if upstream_config.transport == "stdio" and upstream_config.command:
+            # Prepare environment variables for upstream server
+            # Start with current environment
+            upstream_env = os.environ.copy()
+            
+            # Pass through any environment variables that upstream servers might need
+            # GitHub MCP server needs GITHUB_PERSONAL_ACCESS_TOKEN
+            github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+            if github_token:
+                upstream_env["GITHUB_PERSONAL_ACCESS_TOKEN"] = github_token
+            
+            # Pass through any other GITHUB_* variables that might be needed
+            for key, value in os.environ.items():
+                if key.startswith("GITHUB_"):
+                    upstream_env[key] = value
+            
             # Start upstream server as subprocess
             self.upstream_process = subprocess.Popen(
                 [upstream_config.command] + upstream_config.args,
@@ -125,6 +140,7 @@ class ProxyServer:
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=0,
+                env=upstream_env,
             )
 
             # Initialize MCP connection
@@ -149,10 +165,41 @@ class ProxyServer:
             response_line = await loop.run_in_executor(
                 None, self.upstream_process.stdout.readline
             )
-            if response_line:
+            if not response_line:
+                # Check if process has exited
+                if self.upstream_process.poll() is not None:
+                    # Process has exited, try to read stderr
+                    stderr_output = ""
+                    try:
+                        stderr_output = self.upstream_process.stderr.read(1024) if self.upstream_process.stderr else ""
+                    except Exception:
+                        pass
+                    
+                    error_msg = f"Upstream server process exited with code {self.upstream_process.returncode}"
+                    if stderr_output:
+                        error_msg += f"\nStderr output: {stderr_output}"
+                    raise RuntimeError(error_msg)
+                else:
+                    raise RuntimeError("Upstream server did not respond to initialize request")
+            
+            try:
                 init_response = json.loads(response_line.strip())
-                if "error" in init_response:
-                    raise RuntimeError(f"Upstream server initialization failed: {init_response['error']}")
+            except json.JSONDecodeError as e:
+                # Check if process has exited
+                stderr_output = ""
+                if self.upstream_process.poll() is not None:
+                    try:
+                        stderr_output = self.upstream_process.stderr.read(1024) if self.upstream_process.stderr else ""
+                    except Exception:
+                        pass
+                
+                error_msg = f"Failed to parse upstream server response: {e}\nReceived: {response_line[:200]}"
+                if stderr_output:
+                    error_msg += f"\nStderr output: {stderr_output}"
+                raise RuntimeError(error_msg)
+            
+            if "error" in init_response:
+                raise RuntimeError(f"Upstream server initialization failed: {init_response['error']}")
 
             # Send initialized notification
             initialized_notification = {
