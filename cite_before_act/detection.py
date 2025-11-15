@@ -239,19 +239,27 @@ class DetectionEngine:
         """
         # Check blocklist first (explicit non-mutating - highest priority override)
         if self.blocklist and tool_name in self.blocklist:
+            import sys
+            print(f"[DEBUG] Tool '{tool_name}' is in blocklist - non-mutating", file=sys.stderr)
             return False
 
         # Check for read-only patterns (automatic non-mutating detection)
         # This should come before mutating detection to catch read-only operations
         if self._check_read_only(tool_name, tool_description, tool_schema):
+            import sys
+            print(f"[DEBUG] Tool '{tool_name}' detected as read-only - non-mutating", file=sys.stderr)
             return False
 
         # Check allowlist (explicit mutating - high priority)
         if self.allowlist and tool_name in self.allowlist:
+            import sys
+            print(f"[DEBUG] Tool '{tool_name}' is in allowlist - mutating", file=sys.stderr)
             return True
 
         # Convention-based detection for mutating (works for any tool)
         if self.enable_convention and self._check_convention(tool_name):
+            import sys
+            print(f"[DEBUG] Tool '{tool_name}' detected as mutating via convention (prefix/suffix)", file=sys.stderr)
             return True
 
         # Metadata-based detection for mutating (works for any tool)
@@ -260,10 +268,14 @@ class DetectionEngine:
             if tool_schema:
                 description += " " + str(tool_schema.get("description", ""))
             if self._check_metadata(description):
+                import sys
+                print(f"[DEBUG] Tool '{tool_name}' detected as mutating via metadata (description keywords)", file=sys.stderr)
                 return True
 
         # Default: if no strategies match, assume non-mutating (safe default)
         # Note: Allowlist is additive - it doesn't prevent convention/metadata detection
+        import sys
+        print(f"[DEBUG] Tool '{tool_name}' - no detection match, defaulting to non-mutating", file=sys.stderr)
         return False
 
     def _check_read_only(
