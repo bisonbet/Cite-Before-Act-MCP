@@ -1,6 +1,7 @@
 """Approval workflow state management."""
 
 import asyncio
+import sys
 import uuid
 from datetime import datetime, timedelta
 from enum import Enum
@@ -8,6 +9,7 @@ from typing import Callable, Dict, Optional
 
 from cite_before_act.slack.client import SlackClient
 from cite_before_act.slack.handlers import SlackHandler
+from cite_before_act.local_approval import LocalApproval
 
 
 class ApprovalStatus(Enum):
@@ -96,17 +98,23 @@ class ApprovalManager:
         self,
         slack_client: Optional[SlackClient] = None,
         slack_handler: Optional[SlackHandler] = None,
+        local_approval: Optional[LocalApproval] = None,
         default_timeout_seconds: int = 300,
+        use_local_fallback: bool = True,
     ):
         """Initialize approval manager.
 
         Args:
             slack_client: Optional Slack client for sending approval requests
             slack_handler: Optional Slack handler for receiving responses
+            local_approval: Optional local approval handler (CLI/GUI)
             default_timeout_seconds: Default timeout for approval requests
+            use_local_fallback: If True, use local approval if Slack fails or isn't configured
         """
         self.slack_client = slack_client
         self.slack_handler = slack_handler
+        self.local_approval = local_approval
+        self.use_local_fallback = use_local_fallback
         self.default_timeout_seconds = default_timeout_seconds
         self._pending_approvals: Dict[str, ApprovalRequest] = {}
         self._cleanup_task: Optional[asyncio.Task] = None
@@ -149,6 +157,7 @@ class ApprovalManager:
         self._pending_approvals[approval_id] = request
 
         # Send Slack message if client available
+        slack_sent = False
         if self.slack_client:
             try:
                 self.slack_client.send_approval_request(
@@ -157,6 +166,7 @@ class ApprovalManager:
                     description=description,
                     arguments=arguments,
                 )
+                slack_sent = True
 
                 # Register callback with handler
                 if self.slack_handler:
@@ -166,7 +176,17 @@ class ApprovalManager:
                     )
             except Exception as e:
                 # Log error but continue
-                print(f"Error sending Slack approval request: {e}")
+                print(f"Error sending Slack approval request: {e}", file=sys.stderr)
+                slack_sent = False
+
+        # If Slack not available or failed, and local fallback is enabled, use local approval
+        if not slack_sent and self.use_local_fallback:
+            if not self.local_approval:
+                # Create local approval handler if not provided
+                self.local_approval = LocalApproval(use_gui=False)
+            
+            # Request local approval asynchronously
+            asyncio.create_task(self._request_local_approval(approval_id, tool_name, description, arguments))
 
         # Start cleanup task if not already running
         if self._cleanup_task is None or self._cleanup_task.done():
@@ -218,6 +238,36 @@ class ApprovalManager:
             return False
 
         return await request.wait_for_resolution(timeout=timeout)
+
+    async def _request_local_approval(
+        self,
+        approval_id: str,
+        tool_name: str,
+        description: str,
+        arguments: dict,
+    ) -> None:
+        """Request approval via local mechanism.
+
+        Args:
+            approval_id: Unique approval ID
+            tool_name: Name of the tool
+            description: Description of the action
+            arguments: Arguments that would be passed
+        """
+        if not self.local_approval:
+            return
+
+        try:
+            approved = await self.local_approval.request_approval(
+                tool_name=tool_name,
+                description=description,
+                arguments=arguments,
+            )
+            self._handle_approval_response(approval_id, approved)
+        except Exception as e:
+            print(f"Error in local approval: {e}", file=sys.stderr)
+            # Default to rejection on error
+            self._handle_approval_response(approval_id, False)
 
     def cancel_approval(self, approval_id: str) -> None:
         """Cancel a pending approval request.

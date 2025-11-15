@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import os
 import subprocess
+import sys
 import types
 from typing import Any, Dict, Optional
 
@@ -11,6 +13,7 @@ from fastmcp import FastMCP
 from cite_before_act.approval import ApprovalManager
 from cite_before_act.detection import DetectionEngine
 from cite_before_act.explain import ExplainEngine
+from cite_before_act.local_approval import LocalApproval
 from cite_before_act.middleware import Middleware
 from cite_before_act.slack.client import SlackClient
 from cite_before_act.slack.handlers import SlackHandler
@@ -50,22 +53,41 @@ class ProxyServer:
         # Explain engine
         explain_engine = ExplainEngine()
 
-        # Slack integration
+        # Slack integration (optional)
         slack_client = None
         slack_handler = None
+        slack_configured = False
         if self.settings.enable_slack and self.settings.slack:
-            slack_client = SlackClient(
-                token=self.settings.slack.token,
-                channel=self.settings.slack.channel,
-                user_id=self.settings.slack.user_id,
-            )
-            slack_handler = SlackHandler(client=slack_client.client)
+            try:
+                slack_client = SlackClient(
+                    token=self.settings.slack.token,
+                    channel=self.settings.slack.channel,
+                    user_id=self.settings.slack.user_id,
+                )
+                slack_handler = SlackHandler(client=slack_client.client)
+                slack_configured = True
+            except Exception as e:
+                print(f"Warning: Failed to initialize Slack client: {e}", file=sys.stderr)
+                print("Falling back to local approval", file=sys.stderr)
+                slack_configured = False
+
+        # Local approval configuration
+        # Priority: Always enable local approval if:
+        #   1. Explicitly enabled via USE_LOCAL_APPROVAL=true (default)
+        #   2. Slack is not configured or disabled
+        # This ensures local approval is always available as primary or fallback
+        local_approval = None
+        should_use_local = self.settings.use_local_approval or not slack_configured
+        if should_use_local:
+            local_approval = LocalApproval(use_gui=self.settings.use_gui_approval)
 
         # Approval manager
         approval_manager = ApprovalManager(
             slack_client=slack_client,
             slack_handler=slack_handler,
+            local_approval=local_approval,
             default_timeout_seconds=self.settings.approval_timeout_seconds,
+            use_local_fallback=True,  # Always use local as fallback
         )
 
         # Middleware

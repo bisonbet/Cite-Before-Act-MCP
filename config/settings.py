@@ -61,6 +61,8 @@ class Settings(BaseModel):
     upstream: Optional[UpstreamServerConfig] = Field(None, description="Upstream server config")
     approval_timeout_seconds: int = Field(300, description="Default approval timeout")
     enable_slack: bool = Field(True, description="Enable Slack integration")
+    use_local_approval: bool = Field(True, description="Enable local approval (GUI/file-based)")
+    use_gui_approval: bool = Field(True, description="Use GUI dialog for local approval (requires tkinter)")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -111,12 +113,20 @@ class Settings(BaseModel):
                 transport=upstream_transport,
             )
 
+        # Approval settings
+        approval_timeout = int(os.getenv("APPROVAL_TIMEOUT_SECONDS", "300"))
+        enable_slack = os.getenv("ENABLE_SLACK", "true").lower() == "true"
+        use_local_approval = os.getenv("USE_LOCAL_APPROVAL", "true").lower() == "true"
+        use_gui_approval = os.getenv("USE_GUI_APPROVAL", "true").lower() == "true"
+
         return cls(
             slack=slack_config,
             detection=detection_config,
             upstream=upstream_config,
-            approval_timeout_seconds=int(os.getenv("APPROVAL_TIMEOUT_SECONDS", "300")),
-            enable_slack=os.getenv("ENABLE_SLACK", "true").lower() == "true",
+            approval_timeout_seconds=approval_timeout,
+            enable_slack=enable_slack,
+            use_local_approval=use_local_approval,
+            use_gui_approval=use_gui_approval,
         )
 
 

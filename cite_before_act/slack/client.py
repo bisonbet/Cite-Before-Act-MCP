@@ -1,6 +1,7 @@
 """Slack API client for sending approval requests."""
 
 import json
+import sys
 from typing import Optional
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -129,7 +130,13 @@ class SlackClient:
             )
             return response["ts"]
         except SlackApiError as e:
-            raise SlackApiError(f"Failed to send approval request: {e.response['error']}") from e
+            error_msg = f"Failed to send approval request: {e.response.get('error', str(e))}"
+            print(f"Slack API Error: {error_msg}", file=sys.stderr)
+            raise SlackApiError(error_msg) from e
+        except Exception as e:
+            error_msg = f"Unexpected error sending Slack message: {e}"
+            print(f"Slack Error: {error_msg}", file=sys.stderr)
+            raise
 
     def update_message(
         self,

@@ -59,30 +59,33 @@ pip install -e .
 
 **Note**: Interactive components (button clicks) don't require a separate OAuth scope. They work via webhook URLs configured in the "Interactive Components" section. For basic approval workflows, the `chat:write` scope is sufficient. If you want to receive button click responses via webhook, see the [Slack App Setup](#slack-app-setup) section below for webhook configuration.
 
-### Step 4: Configure Environment
+### Step 4: Configure Environment (Optional)
 
-Create a `.env` file in the project root:
+**Note:** Local approval works out of the box! You only need to configure environment variables if you want to:
+- Use Slack for approvals (optional)
+- Customize detection rules
+- Configure an upstream server
 
-```bash
-# Slack Configuration
-SLACK_BOT_TOKEN=xoxb-your-token-here
-SLACK_CHANNEL=#approvals
+**Quick Setup:**
 
-# Detection Configuration
-DETECTION_ALLOWLIST=write_file,edit_file,create_directory,move_file,delete_file
-DETECTION_BLOCKLIST=read_text_file,read_media_file,list_directory,get_file_info
-DETECTION_ENABLE_CONVENTION=true
-DETECTION_ENABLE_METADATA=true
+1. Copy the example environment file:
+   ```bash
+   cp .env.example .env
+   ```
 
-# Upstream Server (Official MCP Filesystem Server)
-UPSTREAM_COMMAND=npx
-UPSTREAM_ARGS=-y,@modelcontextprotocol/server-filesystem
-UPSTREAM_TRANSPORT=stdio
+2. Edit `.env` and uncomment/modify the variables you need:
+   ```bash
+   # For minimal setup (local approval only), you can skip this step!
+   # For Slack integration, uncomment and set:
+   # SLACK_BOT_TOKEN=xoxb-your-token-here
+   # SLACK_CHANNEL=#approvals
+   
+   # For upstream server (required for proxy mode):
+   # UPSTREAM_COMMAND=npx
+   # UPSTREAM_ARGS=-y,@modelcontextprotocol/server-filesystem,/absolute/path/to/directory
+   ```
 
-# Approval Settings
-APPROVAL_TIMEOUT_SECONDS=300
-ENABLE_SLACK=true
-```
+See [`.env.example`](.env.example) for a complete list of all available environment variables with detailed explanations.
 
 ### Step 5: Set Up Filesystem MCP Server
 
@@ -131,7 +134,9 @@ To use Cite-Before-Act MCP with Claude Desktop, you need to add the proxy server
 
 3. **Add the Cite-Before-Act MCP Server**:
    - The file should be a JSON object with an `mcpServers` key
-   - Add the following configuration:
+   - **Note:** Local approval works by default! You can omit `SLACK_BOT_TOKEN` to use GUI popups instead
+   - **Quick Copy:** See [`claude_desktop_config.example.json`](claude_desktop_config.example.json) for a ready-to-use configuration block you can copy
+   - Or manually add the following configuration:
 
    ```json
    {
@@ -155,7 +160,9 @@ To use Cite-Before-Act MCP with Claude Desktop, you need to add the proxy server
            "UPSTREAM_ARGS": "-y,@modelcontextprotocol/server-filesystem,/Users/yourname/mcp-test-workspace",
            "UPSTREAM_TRANSPORT": "stdio",
            "APPROVAL_TIMEOUT_SECONDS": "300",
-           "ENABLE_SLACK": "true"
+           "ENABLE_SLACK": "true",
+           "USE_LOCAL_APPROVAL": "true",
+           "USE_GUI_APPROVAL": "true"
          }
        }
      }
@@ -164,12 +171,19 @@ To use Cite-Before-Act MCP with Claude Desktop, you need to add the proxy server
 
    **Important Notes**:
    - Replace `xoxb-your-token-here` with your actual Slack bot token
-   - Replace `#approvals` with your desired Slack channel (or use a channel ID)
-   - Replace `~/mcp-test-workspace` with the **absolute path** to your test directory (e.g., `/Users/yourname/mcp-test-workspace` on macOS or `C:\Users\yourname\mcp-test-workspace` on Windows)
-   - Make sure the `python` command in `command` points to the Python interpreter where you installed the package (you may need to use the full path, e.g., `/usr/local/bin/python3` or the path to your virtual environment's Python)
-   - **Critical**: The `UPSTREAM_ARGS` must be a comma-separated string that will be split into arguments. The filesystem server needs the directory path as a separate argument.
+   - **Quick Setup:** Copy the configuration from [`claude_desktop_config.example.json`](claude_desktop_config.example.json) and paste it into your `claude_desktop_config.json` file
+   - **Manual Setup:** If adding manually, make sure to:
+     - Replace `xoxb-your-token-here` with your actual Slack bot token (or remove `SLACK_BOT_TOKEN` and `SLACK_CHANNEL` to use local approval only)
+     - Replace `#approvals` with your desired Slack channel (or use a channel ID)
+     - Replace `/Users/yourname/mcp-test-workspace` with the **absolute path** to your test directory (e.g., `/Users/yourname/mcp-test-workspace` on macOS or `C:\Users\yourname\mcp-test-workspace` on Windows)
+     - Make sure the `python` command in `command` points to the Python interpreter where you installed the package (you may need to use the full path, e.g., `/usr/local/bin/python3` or the path to your virtual environment's Python)
+     - **Critical**: The `UPSTREAM_ARGS` must be a comma-separated string that will be split into arguments. The filesystem server needs the directory path as a separate argument.
 
-4. **Complete Example Configuration**:
+4. **Quick Copy Configuration**:
+   
+   For the easiest setup, copy the entire configuration block from [`claude_desktop_config.example.json`](claude_desktop_config.example.json) and paste it into your `claude_desktop_config.json` file. Then edit the values as needed.
+
+5. **Complete Example Configuration** (if not using the example file):
    
    If you already have other MCP servers configured, your file might look like this:
 
@@ -195,7 +209,9 @@ To use Cite-Before-Act MCP with Claude Desktop, you need to add the proxy server
            "UPSTREAM_ARGS": "-y,@modelcontextprotocol/server-filesystem,/Users/yourname/mcp-test-workspace",
            "UPSTREAM_TRANSPORT": "stdio",
            "APPROVAL_TIMEOUT_SECONDS": "300",
-           "ENABLE_SLACK": "true"
+           "ENABLE_SLACK": "true",
+           "USE_LOCAL_APPROVAL": "true",
+           "USE_GUI_APPROVAL": "true"
          }
        },
        "other-server": {
@@ -399,18 +415,69 @@ UPSTREAM_TRANSPORT=http
 
 ### Approval Settings
 
+**Default Behavior (No Configuration Required):**
+- **Local approval is enabled by default** - Works out of the box with GUI popups
+- No Slack configuration needed to get started
+- GUI dialog appears automatically for mutating operations
+
+**Configuration Options:**
+
 ```bash
 # Default timeout for approval requests (seconds)
 APPROVAL_TIMEOUT_SECONDS=300
 
-# Enable/disable Slack integration
-ENABLE_SLACK=true
+# Slack integration (optional - local approval is always the fallback)
+ENABLE_SLACK=true  # Default: true (but requires SLACK_BOT_TOKEN to actually work)
+SLACK_BOT_TOKEN=xoxb-your-token-here  # Required if using Slack
+SLACK_CHANNEL=#approvals  # Optional: channel name or ID
+
+# Local approval settings (enabled by default)
+USE_LOCAL_APPROVAL=true   # Default: true - Enable local approval
+USE_GUI_APPROVAL=true     # Default: true - Use GUI dialog (requires tkinter)
 ```
+
+**Approval Priority & Behavior:**
+
+1. **If no Slack configuration** (no `SLACK_BOT_TOKEN`):
+   - ✅ **Local approval is used** (GUI dialog or file-based)
+   - Works immediately without any setup
+
+2. **If Slack is configured** (`SLACK_BOT_TOKEN` provided):
+   - Tries Slack first for approval requests
+   - If Slack fails or times out → **Automatically falls back to local approval**
+   - Local approval is always available as a safety net
+
+3. **Local Approval Options:**
+   - **GUI Dialog (Default)**: A popup window appears with tool details and Approve/Reject buttons
+     - Requires `tkinter` (usually included with Python)
+     - Works best with stdio MCP servers (like Claude Desktop)
+   - **File-Based Fallback**: If GUI is unavailable, writes approval requests to `/tmp/cite-before-act-approval-{id}.json`
+     - Check Claude Desktop logs (stderr) for the approval file path
+     - Approve by running: `echo "approved" > /tmp/cite-before-act-approval-{id}.json`
+     - Reject by running: `echo "rejected" > /tmp/cite-before-act-approval-{id}.json`
+
+**Summary:**
+- ✅ **Local approval is the default** - No configuration needed
+- ✅ **Slack is optional** - Add it if you want team-wide approvals
+- ✅ **Local is always the fallback** - Even if Slack is configured, local approval is available
+
+### Environment Variables Reference
+
+For a complete list of all environment variables with detailed explanations, see [`.env.example`](.env.example).
+
+You can copy the example file to get started:
+```bash
+cp .env.example .env
+```
+
+Then edit `.env` and uncomment/modify the variables you need.
 
 ### Complete Example `.env` File
 
+Here's a minimal example (see `.env.example` for all options):
+
 ```bash
-# Slack
+# Slack (OPTIONAL - local approval works without this)
 SLACK_BOT_TOKEN=xoxb-your-token-here
 SLACK_CHANNEL=#approvals
 
@@ -663,11 +730,13 @@ The official MCP Filesystem Server is an ideal test target because it provides b
 3. **Test file creation** (should require approval):
    - In Claude Desktop, type: "Create a file called test.txt in ~/mcp-test-workspace with the content 'Hello, World! This is a test file.'"
    - Claude will attempt to use the `write_file` tool
-   - **Check your Slack channel** (#approvals or your configured channel) - you should see an approval request with:
-     - Tool name: `write_file`
-     - Description of what will happen
-     - Arguments that will be passed
-     - Two buttons: **"✅ Approve"** and **"❌ Reject"**
+   - **Approval will be requested**:
+     - **If Slack is configured**: Check your Slack channel (#approvals or your configured channel) - you should see an approval request with:
+       - Tool name: `write_file`
+       - Description of what will happen
+       - Arguments that will be passed
+       - Two buttons: **"✅ Approve"** and **"❌ Reject"**
+     - **If Slack is not configured or fails**: A GUI popup dialog will appear (or check Claude Desktop logs for file-based approval instructions)
    - Click the **"✅ Approve"** button in Slack
    - Return to Claude Desktop - the file should now be created
    - Claude should confirm the file was created successfully
