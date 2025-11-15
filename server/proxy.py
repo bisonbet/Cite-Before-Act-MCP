@@ -3,6 +3,7 @@
 import asyncio
 import json
 import subprocess
+import types
 from typing import Any, Dict, Optional
 
 from fastmcp import FastMCP
@@ -185,30 +186,57 @@ class ProxyServer:
 
         # Dynamically create proxy tools for each upstream tool
         for tool_name, tool_info in self.upstream_tools.items():
-            # Create a closure to capture the tool_name
-            def make_tool_handler(name: str, desc: str):
-                @self.mcp.tool(name=name, description=desc)
-                async def tool_handler(**kwargs: Any) -> Any:
-                    """Proxy tool handler that routes through middleware."""
-                    if not self.middleware:
-                        raise RuntimeError("Middleware not initialized")
-
-                    # Get tool description and schema from upstream
-                    tool_desc = self.upstream_tools.get(name, {}).get("description", "")
-                    tool_schema = self.upstream_tools.get(name, {}).get("inputSchema", {})
-
-                    # Route through middleware
-                    return await self.middleware.call_tool(
-                        tool_name=name,
-                        arguments=kwargs,
-                        tool_description=tool_desc,
-                        tool_schema=tool_schema,
-                    )
-                
-                return tool_handler
-
-            # Register the tool with FastMCP
-            make_tool_handler(tool_name, tool_info.get("description", f"Proxy for {tool_name}"))
+            # Get the input schema to understand the parameters
+            input_schema = tool_info.get("inputSchema", {})
+            properties = input_schema.get("properties", {})
+            param_names = list(properties.keys())
+            
+            # Create a function with explicit parameters using exec
+            # FastMCP requires explicit parameters, not **kwargs
+            if param_names:
+                # Build function signature with all parameters
+                params_str = ", ".join(param_names)
+                # Build code to collect parameters into dict
+                collect_code = "arguments = {" + ", ".join([f"'{p}': {p}" for p in param_names]) + "}"
+            else:
+                params_str = ""
+                collect_code = "arguments = {}"
+            
+            # Capture variables for closure
+            name = tool_name
+            desc = tool_info.get("description", "")
+            schema = input_schema
+            middleware_ref = self.middleware
+            tools_ref = self.upstream_tools
+            
+            # Create function dynamically
+            func_def = f"""
+async def handler({params_str}):
+    \"\"\"{desc}\"\"\"
+    {collect_code}
+    if not middleware_ref:
+        raise RuntimeError("Middleware not initialized")
+    tool_desc = tools_ref.get(name, {{}}).get("description", "")
+    return await middleware_ref.call_tool(
+        tool_name=name,
+        arguments=arguments,
+        tool_description=tool_desc,
+        tool_schema=schema,
+    )
+"""
+            # Execute in local namespace
+            local_ns = {
+                "middleware_ref": middleware_ref,
+                "tools_ref": tools_ref,
+                "name": name,
+                "schema": schema,
+                "asyncio": asyncio,
+            }
+            exec(func_def, {"asyncio": asyncio}, local_ns)
+            handler = local_ns["handler"]
+            
+            # Register with FastMCP
+            self.mcp.tool(name=tool_name, description=desc)(handler)
 
         # Set up middleware to call upstream tools
         if self.middleware:
