@@ -53,11 +53,14 @@ class Middleware:
             RuntimeError: If upstream tool call is not configured
         """
         # Check if tool is mutating
+        import sys
+        print(f"[DEBUG] Middleware intercepting tool call: '{tool_name}'", file=sys.stderr)
         is_mutating = self.detection_engine.is_mutating(
             tool_name=tool_name,
             tool_description=tool_description,
             tool_schema=tool_schema,
         )
+        print(f"[DEBUG] Tool '{tool_name}' is_mutating={is_mutating}", file=sys.stderr)
 
         if not is_mutating:
             # Non-mutating: pass through directly
