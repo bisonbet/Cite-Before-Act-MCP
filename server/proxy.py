@@ -1,12 +1,11 @@
 """FastMCP proxy server with middleware integration."""
 
 import asyncio
+import json
 import subprocess
 from typing import Any, Dict, Optional
 
 from fastmcp import FastMCP
-from fastmcp.client import Client
-from fastmcp.client.stdio import StdioServerParameters
 
 from cite_before_act.approval import ApprovalManager
 from cite_before_act.detection import DetectionEngine
@@ -29,8 +28,9 @@ class ProxyServer:
         self.settings = settings
         self.mcp: Optional[FastMCP] = None
         self.middleware: Optional[Middleware] = None
-        self.upstream_client: Optional[Client] = None
+        self.upstream_process: Optional[subprocess.Popen] = None
         self.upstream_tools: Dict[str, Dict[str, Any]] = {}
+        self._request_id = 3  # Start after init and list_tools
 
         # Initialize components
         self._initialize_components()
@@ -82,27 +82,75 @@ class ProxyServer:
         upstream_config = self.settings.upstream
 
         if upstream_config.transport == "stdio" and upstream_config.command:
-            # Create stdio server parameters
-            server_params = StdioServerParameters(
-                command=upstream_config.command,
-                args=upstream_config.args,
+            # Start upstream server as subprocess
+            self.upstream_process = subprocess.Popen(
+                [upstream_config.command] + upstream_config.args,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=0,
             )
 
-            # Connect to upstream server (don't use context manager - we need to keep it open)
-            self.upstream_client = Client(server_params)
+            # Initialize MCP connection
+            init_request = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "cite-before-act-proxy", "version": "0.1.0"},
+                },
+            }
 
-            # Initialize the connection
-            await self.upstream_client.initialize()
+            # Send initialize request
+            request_str = json.dumps(init_request) + "\n"
+            self.upstream_process.stdin.write(request_str)
+            self.upstream_process.stdin.flush()
+
+            # Read initialize response asynchronously
+            loop = asyncio.get_event_loop()
+            response_line = await loop.run_in_executor(
+                None, self.upstream_process.stdout.readline
+            )
+            if response_line:
+                init_response = json.loads(response_line.strip())
+                if "error" in init_response:
+                    raise RuntimeError(f"Upstream server initialization failed: {init_response['error']}")
+
+            # Send initialized notification
+            initialized_notification = {
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized",
+            }
+            self.upstream_process.stdin.write(json.dumps(initialized_notification) + "\n")
+            self.upstream_process.stdin.flush()
 
             # List tools from upstream server
-            tools_result = await self.upstream_client.list_tools()
-            if tools_result and tools_result.tools:
-                for tool in tools_result.tools:
-                    self.upstream_tools[tool.name] = {
-                        "name": tool.name,
-                        "description": tool.description or "",
-                        "inputSchema": tool.inputSchema or {},
-                    }
+            list_tools_request = {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/list",
+                "params": {},
+            }
+            self.upstream_process.stdin.write(json.dumps(list_tools_request) + "\n")
+            self.upstream_process.stdin.flush()
+
+            # Read tools list response asynchronously
+            loop = asyncio.get_event_loop()
+            tools_response_line = await loop.run_in_executor(
+                None, self.upstream_process.stdout.readline
+            )
+            if tools_response_line:
+                tools_response = json.loads(tools_response_line.strip())
+                if "result" in tools_response and "tools" in tools_response["result"]:
+                    for tool in tools_response["result"]["tools"]:
+                        self.upstream_tools[tool["name"]] = {
+                            "name": tool["name"],
+                            "description": tool.get("description", ""),
+                            "inputSchema": tool.get("inputSchema", {}),
+                        }
 
         elif upstream_config.transport in ("http", "sse") and upstream_config.url:
             # For HTTP/SSE, we'd use a different client setup
@@ -176,29 +224,55 @@ class ProxyServer:
         Returns:
             Result from upstream tool
         """
-        if not self.upstream_client:
-            # Reconnect if needed
-            await self._connect_to_upstream()
+        if not self.upstream_process:
+            raise RuntimeError("Upstream process not available")
 
-        if not self.upstream_client:
-            raise RuntimeError("Upstream client not available")
+        # Create tool call request
+        request_id = self._request_id
+        self._request_id += 1
 
-        # Call the tool on upstream server
-        result = await self.upstream_client.call_tool(tool_name, arguments)
-        
-        # Extract the result content
-        if result and result.content:
-            # FastMCP returns content as a list, get the first item
-            if len(result.content) > 0:
-                content_item = result.content[0]
-                if hasattr(content_item, "text"):
-                    return content_item.text
-                elif hasattr(content_item, "data"):
-                    return content_item.data
-                else:
-                    return str(content_item)
-        
-        return result
+        tool_request = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": arguments,
+            },
+        }
+
+        # Send request to upstream server
+        request_str = json.dumps(tool_request) + "\n"
+        self.upstream_process.stdin.write(request_str)
+        self.upstream_process.stdin.flush()
+
+        # Read response asynchronously
+        loop = asyncio.get_event_loop()
+        response_line = await loop.run_in_executor(
+            None, self.upstream_process.stdout.readline
+        )
+        if not response_line:
+            raise RuntimeError("No response from upstream server")
+
+        response = json.loads(response_line.strip())
+
+        if "error" in response:
+            raise RuntimeError(f"Upstream tool call failed: {response['error']}")
+
+        # Extract result content
+        if "result" in response:
+            result = response["result"]
+            if "content" in result and len(result["content"]) > 0:
+                content_item = result["content"][0]
+                if isinstance(content_item, dict):
+                    if "text" in content_item:
+                        return content_item["text"]
+                    elif "data" in content_item:
+                        return content_item["data"]
+                return content_item
+            return result
+
+        return None
 
     async def create_server(self) -> FastMCP:
         """Create and configure the FastMCP server.
