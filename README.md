@@ -86,14 +86,25 @@ ENABLE_SLACK=true
 
 ### Step 5: Set Up Filesystem MCP Server
 
-The official MCP Filesystem Server requires configuration of allowed directories. Create a test directory:
+The official MCP Filesystem Server requires configuration of allowed directories. Create a test directory and get its absolute path:
 
 ```bash
 # Create a test directory for file operations
 mkdir -p ~/mcp-test-workspace
+
+# Get the absolute path (important for configuration)
+cd ~/mcp-test-workspace && pwd
 ```
 
-The filesystem server will need to know which directories it can access. When using `npx`, you can pass directory arguments, but the exact method depends on how the server is invoked. For testing purposes, we'll configure it to use a specific directory.
+**Important**: Copy the absolute path output from `pwd` - you'll need it for the `UPSTREAM_ARGS` in your Claude Desktop configuration. The path must be absolute (e.g., `/Users/yourname/mcp-test-workspace` on macOS, not `~/mcp-test-workspace`).
+
+**Verify Node.js is installed** (required for the filesystem server):
+```bash
+node --version
+npx --version
+```
+
+If Node.js is not installed, download it from https://nodejs.org/
 
 ### Step 6: Run the Proxy Server
 
@@ -141,7 +152,7 @@ To use Cite-Before-Act MCP with Claude Desktop, you need to add the proxy server
            "DETECTION_ENABLE_CONVENTION": "true",
            "DETECTION_ENABLE_METADATA": "true",
            "UPSTREAM_COMMAND": "npx",
-           "UPSTREAM_ARGS": "-y,@modelcontextprotocol/server-filesystem,~/mcp-test-workspace",
+           "UPSTREAM_ARGS": "-y,@modelcontextprotocol/server-filesystem,/Users/yourname/mcp-test-workspace",
            "UPSTREAM_TRANSPORT": "stdio",
            "APPROVAL_TIMEOUT_SECONDS": "300",
            "ENABLE_SLACK": "true"
@@ -154,8 +165,9 @@ To use Cite-Before-Act MCP with Claude Desktop, you need to add the proxy server
    **Important Notes**:
    - Replace `xoxb-your-token-here` with your actual Slack bot token
    - Replace `#approvals` with your desired Slack channel (or use a channel ID)
-   - Replace `~/mcp-test-workspace` with the path to your test directory (use absolute path if needed)
+   - Replace `~/mcp-test-workspace` with the **absolute path** to your test directory (e.g., `/Users/yourname/mcp-test-workspace` on macOS or `C:\Users\yourname\mcp-test-workspace` on Windows)
    - Make sure the `python` command in `command` points to the Python interpreter where you installed the package (you may need to use the full path, e.g., `/usr/local/bin/python3` or the path to your virtual environment's Python)
+   - **Critical**: The `UPSTREAM_ARGS` must be a comma-separated string that will be split into arguments. The filesystem server needs the directory path as a separate argument.
 
 4. **Complete Example Configuration**:
    
@@ -205,8 +217,18 @@ To use Cite-Before-Act MCP with Claude Desktop, you need to add the proxy server
 
 7. **Verify the Connection**:
    - In Claude Desktop, you should see the Cite-Before-Act MCP server listed
-   - The server will expose tools from the upstream filesystem server
-   - You should also see an `explain` tool for generating previews
+   - **Important**: You should see **all filesystem tools** from the upstream server, not just the `explain` tool
+   - Expected tools include:
+     - `write_file` - Write/create files (requires approval)
+     - `read_text_file` - Read files (no approval needed)
+     - `list_directory` - List directory contents (no approval needed)
+     - `delete_file` - Delete files (requires approval)
+     - `create_directory` - Create directories (requires approval)
+     - `move_file` - Move/rename files (requires approval)
+     - `edit_file` - Edit file content (requires approval)
+     - `explain` - Generate previews (utility tool)
+     - And other filesystem operations
+   - If you only see the `explain` tool, see the troubleshooting section below
 
 ### Using Python from a Virtual Environment
 
@@ -249,15 +271,73 @@ conda info --envs  # then use the path shown
 - Check Claude Desktop's logs for error messages
 - Make sure you completely restarted Claude Desktop (quit and reopen)
 
+**Issue: Only seeing `explain` tool, no filesystem tools**
+This means the proxy isn't connecting to the upstream filesystem server. Check:
+
+1. **Verify Node.js and npx are installed**:
+   ```bash
+   node --version
+   npx --version
+   ```
+   If not installed, install Node.js from https://nodejs.org/
+
+2. **Test the upstream server directly**:
+   ```bash
+   npx -y @modelcontextprotocol/server-filesystem /path/to/your/test/directory
+   ```
+   This should start the filesystem server. Press Ctrl+C to stop it.
+
+3. **Check the UPSTREAM_ARGS format**:
+   - The path must be an **absolute path**, not `~/mcp-test-workspace`
+   - On macOS/Linux: Use `/Users/yourname/mcp-test-workspace`
+   - On Windows: Use `C:\Users\yourname\mcp-test-workspace`
+   - The directory must exist before starting
+
+4. **Verify the directory exists**:
+   ```bash
+   # Create the directory if it doesn't exist
+   mkdir -p ~/mcp-test-workspace
+   # Get the absolute path
+   cd ~/mcp-test-workspace && pwd
+   ```
+   Use the output from `pwd` in your `UPSTREAM_ARGS`
+
+5. **Check Claude Desktop logs**:
+   - Look for errors about the upstream server connection
+   - Check for "command not found" errors related to `npx`
+   - Verify the upstream server is starting correctly
+
+6. **Test the proxy server manually**:
+   ```bash
+   # Set environment variables
+   export SLACK_BOT_TOKEN="xoxb-your-token"
+   export SLACK_CHANNEL="#approvals"
+   export UPSTREAM_COMMAND="npx"
+   export UPSTREAM_ARGS="-y,@modelcontextprotocol/server-filesystem,/absolute/path/to/directory"
+   export UPSTREAM_TRANSPORT="stdio"
+   
+   # Run the proxy
+   python -m server.main --transport stdio
+   ```
+   Check for any error messages about connecting to the upstream server.
+
 **Issue: "Command not found" errors**
 - Use the full path to Python instead of just `python`
 - Verify the Python environment has `cite-before-act-mcp` installed
 - Check that `server.main` module can be imported: `python -m server.main --help`
+- If `npx` is not found, ensure Node.js is installed and in your PATH
 
 **Issue: Environment variables not working**
 - Make sure all environment variables are in the `env` object
-- Use absolute paths for directory references
+- Use absolute paths for directory references (not `~` or relative paths)
 - Verify Slack token and channel are correct
+- Check that there are no extra spaces or quotes in the JSON values
+
+**Issue: Filesystem operations failing**
+- Verify the test directory exists and is accessible
+- Check that the directory path in `UPSTREAM_ARGS` matches exactly (case-sensitive on Linux/macOS)
+- Ensure the filesystem server has permission to read/write in that directory
+- Try using a simpler path first (e.g., `/tmp/mcp-test` on macOS/Linux)
 
 ## Installation
 
