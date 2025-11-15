@@ -237,44 +237,49 @@ class DetectionEngine:
         Returns:
             True if tool is detected as mutating, False otherwise
         """
+        import sys
+        import re
+        
         # Check blocklist first (explicit non-mutating - highest priority override)
         if self.blocklist and tool_name in self.blocklist:
-            import sys
             print(f"[DEBUG] Tool '{tool_name}' is in blocklist - non-mutating", file=sys.stderr)
-            return False
-
-        # Check for read-only patterns (automatic non-mutating detection)
-        # This should come before mutating detection to catch read-only operations
-        if self._check_read_only(tool_name, tool_description, tool_schema):
-            import sys
-            print(f"[DEBUG] Tool '{tool_name}' detected as read-only - non-mutating", file=sys.stderr)
             return False
 
         # Check allowlist (explicit mutating - high priority)
         if self.allowlist and tool_name in self.allowlist:
-            import sys
             print(f"[DEBUG] Tool '{tool_name}' is in allowlist - mutating", file=sys.stderr)
             return True
 
+        # Check for mutating patterns FIRST (security: when in doubt, require approval)
         # Convention-based detection for mutating (works for any tool)
+        is_mutating_by_convention = False
         if self.enable_convention and self._check_convention(tool_name):
-            import sys
+            is_mutating_by_convention = True
             print(f"[DEBUG] Tool '{tool_name}' detected as mutating via convention (prefix/suffix)", file=sys.stderr)
-            return True
 
         # Metadata-based detection for mutating (works for any tool)
+        is_mutating_by_metadata = False
         if self.enable_metadata:
             description = tool_description or ""
             if tool_schema:
                 description += " " + str(tool_schema.get("description", ""))
             if self._check_metadata(description):
-                import sys
+                is_mutating_by_metadata = True
                 print(f"[DEBUG] Tool '{tool_name}' detected as mutating via metadata (description keywords)", file=sys.stderr)
-                return True
 
-        # Default: if no strategies match, assume non-mutating (safe default)
-        # Note: Allowlist is additive - it doesn't prevent convention/metadata detection
-        import sys
+        # If mutating patterns match, require approval (security first)
+        if is_mutating_by_convention or is_mutating_by_metadata:
+            return True
+
+        # Only check for read-only patterns if no mutating patterns matched
+        # This prevents false positives (e.g., "account" containing "count")
+        if self._check_read_only(tool_name, tool_description, tool_schema):
+            print(f"[DEBUG] Tool '{tool_name}' detected as read-only - non-mutating", file=sys.stderr)
+            return False
+
+        # Default: if no strategies match, assume non-mutating (safe default for read operations)
+        # But note: if there's any ambiguity, we should err on the side of requiring approval
+        # However, for now we default to non-mutating to avoid blocking legitimate read operations
         print(f"[DEBUG] Tool '{tool_name}' - no detection match, defaulting to non-mutating", file=sys.stderr)
         return False
 
@@ -309,15 +314,20 @@ class DetectionEngine:
                 print(f"[DEBUG] Read-only match: '{tool_name}' ends with suffix '{suffix}'", file=sys.stderr)
                 return True
 
-        # Check description for read-only keywords
+        # Check description for read-only keywords using word boundaries
+        # This prevents false positives like "account" matching "count"
         description = tool_description or ""
         if tool_schema:
             description += " " + str(tool_schema.get("description", ""))
         
         description_lower = description.lower()
+        import re
         for keyword in self.READ_ONLY_KEYWORDS:
-            if keyword in description_lower:
-                print(f"[DEBUG] Read-only match: '{tool_name}' description contains keyword '{keyword}'", file=sys.stderr)
+            # Use word boundaries to match whole words only
+            # \b matches word boundaries (start/end of word)
+            pattern = r'\b' + re.escape(keyword) + r'\b'
+            if re.search(pattern, description_lower):
+                print(f"[DEBUG] Read-only match: '{tool_name}' description contains keyword '{keyword}' (whole word)", file=sys.stderr)
                 print(f"[DEBUG] Description was: '{description}'", file=sys.stderr)
                 return True
 
