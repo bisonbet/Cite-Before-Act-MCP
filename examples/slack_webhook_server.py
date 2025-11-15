@@ -74,9 +74,20 @@ import re
 import sys
 import time
 from collections import defaultdict
+from pathlib import Path
 from flask import Flask, request, jsonify
 from slack_sdk import WebClient
 from cite_before_act.slack.handlers import SlackHandler
+from dotenv import load_dotenv
+
+# Load environment variables from .env file (if it exists)
+# This allows the webhook server to use the same configuration as the MCP server
+env_path = Path(__file__).parent.parent / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
+else:
+    # Also try loading from current directory
+    load_dotenv()
 
 app = Flask(__name__)
 
