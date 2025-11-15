@@ -559,13 +559,15 @@ def configure_upstream() -> Dict[str, Any]:
         if not token:
             print_warning("No token provided. You'll need to set GITHUB_PERSONAL_ACCESS_TOKEN in your .env file")
 
-        # Optional: additional args
+        # GitHub MCP server requires 'stdio' subcommand
+        args = ["stdio"]
+        
+        # Optional: additional flags
         print("\nOptional GitHub MCP Server flags:")
         print("Common options: --read-only, --lockdown-mode, --dynamic-toolsets")
         additional_args_str = prompt("Additional arguments (comma-separated, or press Enter for none)", "")
-        args = []
         if additional_args_str:
-            args = [arg.strip() for arg in additional_args_str.split(",")]
+            args.extend([arg.strip() for arg in additional_args_str.split(",")])
 
         config = {
             "command": command,

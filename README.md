@@ -655,7 +655,7 @@ This example demonstrates using Cite-Before-Act MCP with the [GitHub MCP Server]
       "args": ["-m", "server.main", "--transport", "stdio"],
       "env": {
         "UPSTREAM_COMMAND": "github-mcp-server",
-        "UPSTREAM_ARGS": "",
+        "UPSTREAM_ARGS": "stdio",
         "UPSTREAM_TRANSPORT": "stdio",
         "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_your_token_here",
         "DETECTION_ENABLE_CONVENTION": "true",
