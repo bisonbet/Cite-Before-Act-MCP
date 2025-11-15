@@ -112,9 +112,9 @@ class SlackClient:
         Raises:
             SlackApiError: If message sending fails
         """
-        # Format arguments for display
-        args_text = json.dumps(arguments, indent=2)
-
+        # Format arguments for display (summarize long content)
+        args_summary = self._summarize_arguments(arguments, tool_name)
+        
         # Build message blocks
         blocks = [
             {
@@ -134,7 +134,7 @@ class SlackClient:
                     },
                     {
                         "type": "mrkdwn",
-                        "text": f"*Approval ID:*\n`{approval_id}`",
+                        "text": f"*Approval ID:*\n`{approval_id[:8]}...`",
                     },
                 ],
             },
@@ -142,44 +142,49 @@ class SlackClient:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*Description:*\n{description}",
+                    "text": f"*Action:*\n{description}",
                 },
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*Arguments:*\n```\n{args_text}\n```",
-                },
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "✅ Approve",
-                            "emoji": True,
-                        },
-                        "style": "primary",
-                        "value": json.dumps({"action": "approve", "approval_id": approval_id}),
-                        "action_id": "approve_action",
-                    },
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "❌ Reject",
-                            "emoji": True,
-                        },
-                        "style": "danger",
-                        "value": json.dumps({"action": "reject", "approval_id": approval_id}),
-                        "action_id": "reject_action",
-                    },
-                ],
             },
         ]
+        
+        # Only show arguments if they add value (not redundant with description)
+        if args_summary and args_summary != "{}":
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Details:*\n```\n{args_summary}\n```",
+                },
+            })
+        
+        # Add action buttons
+        blocks.append({
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "✅ Approve",
+                        "emoji": True,
+                    },
+                    "style": "primary",
+                    "value": json.dumps({"action": "approve", "approval_id": approval_id}),
+                    "action_id": "approve_action",
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "❌ Reject",
+                        "emoji": True,
+                    },
+                    "style": "danger",
+                    "value": json.dumps({"action": "reject", "approval_id": approval_id}),
+                    "action_id": "reject_action",
+                },
+            ],
+        })
 
         # Determine where to send
         channel = self.channel or self.user_id
