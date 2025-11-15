@@ -294,16 +294,19 @@ class DetectionEngine:
         Returns:
             True if tool appears to be read-only, False otherwise
         """
+        import sys
         tool_name_lower = tool_name.lower()
 
         # Check read-only prefixes
         for prefix in self.READ_ONLY_PREFIXES:
             if tool_name_lower.startswith(prefix):
+                print(f"[DEBUG] Read-only match: '{tool_name}' starts with prefix '{prefix}'", file=sys.stderr)
                 return True
 
         # Check read-only suffixes
         for suffix in self.READ_ONLY_SUFFIXES:
             if tool_name_lower.endswith(suffix):
+                print(f"[DEBUG] Read-only match: '{tool_name}' ends with suffix '{suffix}'", file=sys.stderr)
                 return True
 
         # Check description for read-only keywords
@@ -314,6 +317,8 @@ class DetectionEngine:
         description_lower = description.lower()
         for keyword in self.READ_ONLY_KEYWORDS:
             if keyword in description_lower:
+                print(f"[DEBUG] Read-only match: '{tool_name}' description contains keyword '{keyword}'", file=sys.stderr)
+                print(f"[DEBUG] Description was: '{description}'", file=sys.stderr)
                 return True
 
         return False
