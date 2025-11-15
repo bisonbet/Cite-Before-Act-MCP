@@ -26,19 +26,57 @@ class ExplainEngine:
         # Start with action description
         action = self._describe_action(tool_name, tool_description)
 
-        # Add parameter details
-        params_desc = self._describe_parameters(arguments)
-
-        # Combine into natural language
-        if params_desc:
-            description = f"This will {action} with parameters: {params_desc}."
-        else:
-            description = f"This will {action}."
-
-        # Add impact assessment if possible
+        # Get impact assessment first (includes key details like file path)
         impact = self._assess_impact(tool_name, arguments)
+        
+        # For file write operations, summarize content instead of showing it
+        if "write" in tool_name.lower() or "create" in tool_name.lower():
+            if "content" in arguments and isinstance(arguments["content"], str):
+                content = arguments["content"]
+                lines = content.split("\n")
+                char_count = len(content)
+                if char_count > 100:
+                    # Summarize long content
+                    if len(lines) > 1:
+                        description = f"{action} ({len(lines)} lines, {char_count} characters)"
+                    else:
+                        description = f"{action} ({char_count} characters)"
+                else:
+                    # Short content - show first line or snippet
+                    first_line = lines[0] if lines else content
+                    if len(first_line) > 60:
+                        description = f"{action} with content: {first_line[:57]}..."
+                    else:
+                        description = f"{action} with content: {first_line}"
+                # Add impact (file path)
+                if impact:
+                    # Impact format is "file: {path}" - extract just the path
+                    if impact.startswith("file: "):
+                        path = impact[6:]  # Remove "file: " prefix
+                        description += f" at {path}"
+                    else:
+                        description += f" - {impact}"
+                return description
+
+        # For other operations, use concise parameter summary
+        params_desc = self._describe_parameters(arguments, tool_name)
+        
+        # Build concise description
         if impact:
-            description += f" Impact: {impact}"
+            # Impact already includes key details, so keep description simple
+            description = f"{action}"
+            # Add impact details if not redundant
+            if "path" in arguments or "file" in arguments:
+                path = arguments.get("path") or arguments.get("file", "")
+                if path and path not in impact:
+                    description += f" at {path}"
+            else:
+                description += f" - {impact}"
+        elif params_desc and params_desc != "no parameters":
+            # Only show key parameters, not all of them
+            description = f"{action} ({params_desc})"
+        else:
+            description = f"{action}"
 
         return description
 
@@ -119,11 +157,12 @@ class ExplainEngine:
         else:
             return f"execute the '{tool_name}' operation"
 
-    def _describe_parameters(self, arguments: Dict[str, Any]) -> str:
+    def _describe_parameters(self, arguments: Dict[str, Any], tool_name: str = "") -> str:
         """Describe the parameters in a human-readable way.
 
         Args:
             arguments: Dictionary of arguments
+            tool_name: Name of the tool (for context-aware summarization)
 
         Returns:
             Natural language description of parameters
@@ -132,27 +171,45 @@ class ExplainEngine:
             return "no parameters"
 
         param_descriptions = []
+        tool_lower = tool_name.lower()
 
         for key, value in arguments.items():
+            # Skip content parameter for file operations (handled separately in explain())
+            if key == "content" and ("write" in tool_lower or "create" in tool_lower):
+                continue
+            
             # Format value appropriately
             if isinstance(value, str):
-                # Truncate long strings
-                if len(value) > 50:
+                # For long strings, summarize instead of truncating
+                if len(value) > 100:
+                    # Count lines and characters
+                    lines = value.split("\n")
+                    if len(lines) > 1:
+                        value_str = f"{len(lines)} lines, {len(value)} characters"
+                    else:
+                        value_str = f"{len(value)} characters"
+                    param_descriptions.append(f"{key}: {value_str}")
+                elif len(value) > 50:
+                    # Medium length - show first part
                     value_str = value[:47] + "..."
+                    param_descriptions.append(f"{key}: '{value_str}'")
                 else:
-                    value_str = value
-                param_descriptions.append(f"{key}='{value_str}'")
+                    param_descriptions.append(f"{key}: '{value}'")
             elif isinstance(value, (int, float, bool)):
-                param_descriptions.append(f"{key}={value}")
+                param_descriptions.append(f"{key}: {value}")
             elif isinstance(value, list):
                 if len(value) > 3:
-                    param_descriptions.append(f"{key}=[{len(value)} items]")
+                    param_descriptions.append(f"{key}: {len(value)} items")
                 else:
-                    param_descriptions.append(f"{key}={value}")
+                    param_descriptions.append(f"{key}: {value}")
             elif isinstance(value, dict):
-                param_descriptions.append(f"{key}={{...}}")
+                param_descriptions.append(f"{key}: {{...}}")
             else:
-                param_descriptions.append(f"{key}={str(value)[:30]}")
+                str_value = str(value)
+                if len(str_value) > 30:
+                    param_descriptions.append(f"{key}: {str_value[:27]}...")
+                else:
+                    param_descriptions.append(f"{key}: {str_value}")
 
         return ", ".join(param_descriptions)
 
@@ -172,7 +229,7 @@ class ExplainEngine:
         if any(op in tool_lower for op in ["write", "create", "file"]):
             if "path" in arguments or "file" in arguments:
                 path = arguments.get("path") or arguments.get("file", "unknown")
-                return f"will create or modify file at {path}"
+                return f"file: {path}"
 
         if "delete" in tool_lower or "remove" in tool_lower:
             if "path" in arguments or "file" in arguments:
