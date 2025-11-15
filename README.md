@@ -180,7 +180,7 @@ To use Cite-Before-Act MCP with Claude Desktop, you need to add the proxy server
            "APPROVAL_TIMEOUT_SECONDS": "300",
            "ENABLE_SLACK": "true",
            "USE_LOCAL_APPROVAL": "true",
-           "USE_GUI_APPROVAL": "false"
+           "USE_NATIVE_DIALOG": "true"
          }
        }
      }
@@ -233,7 +233,7 @@ To use Cite-Before-Act MCP with Claude Desktop, you need to add the proxy server
            "APPROVAL_TIMEOUT_SECONDS": "300",
            "ENABLE_SLACK": "true",
            "USE_LOCAL_APPROVAL": "true",
-           "USE_GUI_APPROVAL": "false"
+           "USE_NATIVE_DIALOG": "true"
          }
        },
        "other-server": {
@@ -454,9 +454,34 @@ UPSTREAM_TRANSPORT=http
 ### Approval Settings
 
 **Default Behavior (No Configuration Required):**
-- **Local approval is enabled by default** - Works out of the box with GUI popups
-- No Slack configuration needed to get started
-- GUI dialog appears automatically for mutating operations
+- **Multiple approval methods work simultaneously** - All methods are triggered in parallel
+- **Native OS dialogs** appear automatically on macOS/Windows
+- **File-based approval instructions** are always shown in logs (works on all platforms)
+- **Slack notifications** (if configured) are sent in parallel
+- No configuration needed to get started!
+
+**How Multiple Approval Methods Work:**
+
+When a mutating operation requires approval, **all enabled methods are triggered simultaneously**:
+
+1. **Slack Notifications** (if `SLACK_BOT_TOKEN` is configured):
+   - Sends approval request to Slack channel or DM
+   - Includes Approve/Reject buttons (if webhook is configured)
+   - Works in parallel with other methods
+
+2. **Native OS Dialogs** (macOS/Windows, if `USE_NATIVE_DIALOG=true`):
+   - **macOS**: Uses `osascript` (AppleScript) to show native dialog
+   - **Windows**: Uses PowerShell `MessageBox` to show native dialog
+   - **Linux**: No native dialog available (uses file-based only)
+   - Works even in stdio MCP mode (runs as separate process)
+
+3. **File-Based Approval** (always enabled):
+   - Approval instructions are **always printed to logs** (stderr)
+   - Works on all platforms (macOS, Windows, Linux)
+   - Approve: `echo "approved" > /tmp/cite-before-act-approval-{id}.json`
+   - Reject: `echo "rejected" > /tmp/cite-before-act-approval-{id}.json`
+
+**All methods write to the same approval file**, so **any one method can approve** - whichever responds first!
 
 **Configuration Options:**
 
@@ -464,40 +489,41 @@ UPSTREAM_TRANSPORT=http
 # Default timeout for approval requests (seconds)
 APPROVAL_TIMEOUT_SECONDS=300
 
-# Slack integration (optional - local approval is always the fallback)
+# Slack integration (optional - works in parallel with local approval)
 ENABLE_SLACK=true  # Default: true (but requires SLACK_BOT_TOKEN to actually work)
 SLACK_BOT_TOKEN=xoxb-your-token-here  # Required if using Slack
 SLACK_CHANNEL=#approvals  # Optional: channel name or ID
 
 # Local approval settings (enabled by default)
-USE_LOCAL_APPROVAL=true   # Default: true - Enable local approval
-USE_GUI_APPROVAL=false    # Default: false - Use file-based approval (required for stdio MCP/Claude Desktop)
+USE_LOCAL_APPROVAL=true      # Default: true - Enable local approval
+USE_NATIVE_DIALOG=true       # Default: true - Use native OS dialogs (macOS/Windows)
+                              # File-based instructions always shown in logs regardless
 ```
 
-**Approval Priority & Behavior:**
+**Approval Behavior Examples:**
 
-1. **If no Slack configuration** (no `SLACK_BOT_TOKEN`):
-   - ✅ **Local approval is used** (GUI dialog or file-based)
-   - Works immediately without any setup
+1. **No Slack configuration** (no `SLACK_BOT_TOKEN`):
+   - ✅ Native OS dialog appears (macOS/Windows)
+   - ✅ File-based instructions shown in logs (all platforms)
+   - ✅ Works immediately without any setup
 
-2. **If Slack is configured** (`SLACK_BOT_TOKEN` provided):
-   - Tries Slack first for approval requests
-   - If Slack fails or times out → **Automatically falls back to local approval**
-   - Local approval is always available as a safety net
+2. **Slack configured** (`SLACK_BOT_TOKEN` provided):
+   - ✅ Slack notification sent (with buttons if webhook configured)
+   - ✅ Native OS dialog appears (macOS/Windows)
+   - ✅ File-based instructions shown in logs (all platforms)
+   - ✅ **All methods work in parallel** - any one can approve
 
-3. **Local Approval Options:**
-   - **GUI Dialog (Default)**: A popup window appears with tool details and Approve/Reject buttons
-     - Requires `tkinter` (usually included with Python)
-     - Works best with stdio MCP servers (like Claude Desktop)
-   - **File-Based Fallback**: If GUI is unavailable, writes approval requests to `/tmp/cite-before-act-approval-{id}.json`
-     - Check Claude Desktop logs (stderr) for the approval file path
-     - Approve by running: `echo "approved" > /tmp/cite-before-act-approval-{id}.json`
-     - Reject by running: `echo "rejected" > /tmp/cite-before-act-approval-{id}.json`
+3. **Linux (no native dialog)**:
+   - ✅ Slack notification sent (if configured)
+   - ✅ File-based instructions shown in logs
+   - ✅ Approve via file: `echo "approved" > /tmp/cite-before-act-approval-{id}.json`
 
 **Summary:**
-- ✅ **Local approval is the default** - No configuration needed
-- ✅ **Slack is optional** - Add it if you want team-wide approvals
-- ✅ **Local is always the fallback** - Even if Slack is configured, local approval is available
+- ✅ **Multiple methods work simultaneously** - Not sequential fallback
+- ✅ **Native dialogs on macOS/Windows** - Uses osascript/PowerShell (works in stdio MCP mode)
+- ✅ **File-based always available** - Instructions always shown in logs
+- ✅ **Slack is optional** - Add it for team-wide approvals
+- ✅ **Any method can approve** - Whichever responds first wins
 
 ### Environment Variables Reference
 
@@ -624,23 +650,107 @@ To receive approval responses, you need to set up a Slack app with the proper pe
 - Requires `groups:read` scope (already listed above)
 - Private channel IDs start with `G` (e.g., `G1234567890`)
 
-### Interactive Components Setup (Optional - for Webhook Responses)
+### Interactive Components Setup (REQUIRED for Button Clicks)
 
-If you want to receive button click responses via webhook (instead of polling), configure Interactive Components:
+**Important**: Without this setup, approval buttons in Slack won't work! You'll see "This app can't handle interactive responses" when clicking buttons.
 
-1. **Navigate to Interactive Components**:
-   - In the left-hand sidebar, click on **"Interactive Components"**
-2. **Enable Interactive Components**:
+**Understanding the Webhook Requirement:**
+- Slack needs to send button click events to a **publicly accessible URL**
+- Your local machine is not accessible from the internet by default
+- **Solution**: Use ngrok (or similar) to create a temporary tunnel from the internet to your local server
+- ngrok gives you a public URL (e.g., `https://abc123.ngrok.io`) that forwards to your local server
+- This is only needed for the webhook server - your MCP server doesn't need internet access
+
+**Alternative**: If you don't want to run a webhook server, you can use **local approval** instead (file-based). Slack will still send approval requests, but you'll need to approve via the file-based method instead of clicking buttons.
+
+To enable button clicks, you need to set up a webhook endpoint:
+
+#### Option 1: Quick Setup with Example Webhook Server
+
+1. **Install Flask** (if not already installed):
+```bash
+pip install flask
+```
+
+2. **Set your Slack bot token**:
+```bash
+export SLACK_BOT_TOKEN=xoxb-your-token-here
+```
+
+3. **Run the webhook server**:
+```bash
+python examples/slack_webhook_example.py
+```
+
+4. **Expose with ngrok** (creates a public URL that tunnels to your local server):
+```bash
+# Install ngrok: https://ngrok.com/download
+# ngrok creates a public HTTPS URL that forwards to your local server
+# Example: https://abc123.ngrok.io -> http://localhost:3000
+ngrok http 3000
+```
+**How ngrok works:**
+- ngrok runs on your machine and creates a tunnel
+- Slack sends requests to the ngrok URL (e.g., `https://abc123.ngrok.io`)
+- ngrok forwards those requests to your local server (`http://localhost:3000`)
+- Your server processes the request and responds
+- ngrok forwards the response back to Slack
+- **Your machine doesn't need to be directly accessible from the internet**
+
+5. **Configure in Slack**:
+   - Go to https://api.slack.com/apps → Your App → **Interactive Components**
    - Toggle **"Interactivity"** to **On**
-3. **Set Request URL**:
-   - Enter your webhook URL (e.g., `https://your-server.com/slack/interactive`)
-   - This URL must be publicly accessible (use ngrok for local testing)
+   - Set **Request URL** to: `https://your-ngrok-url.ngrok.io/slack/interactive`
+     - Replace `your-ngrok-url` with your actual ngrok URL
    - Click **"Save Changes"**
-4. **Test the Webhook**:
-   - See `examples/slack_webhook_example.py` for a Flask example
-   - Use ngrok to expose your local server: `ngrok http 3000`
 
-**Note**: Interactive components don't require a separate OAuth scope. The `chat:write` scope is sufficient to send messages with buttons. Button clicks are handled via the webhook URL you configure, not through OAuth scopes.
+6. **Keep the webhook server running**:
+   - The webhook server must be running for button clicks to work
+   - Keep the terminal with `python examples/slack_webhook_example.py` open
+   - Keep ngrok running in another terminal
+
+#### Option 2: Deploy Your Own Webhook Server
+
+If you have a server with a public URL:
+
+1. **Deploy the webhook endpoint** (see `examples/slack_webhook_example.py`)
+2. **Configure in Slack**:
+   - Go to **Interactive Components** in your Slack app settings
+   - Set **Request URL** to: `https://your-server.com/slack/interactive`
+   - Click **"Save Changes"`
+
+#### How It Works
+
+- When you click Approve/Reject in Slack, Slack sends a POST request to your webhook URL
+- The webhook server processes the button click and writes the approval to a file
+- The MCP server (running in Claude Desktop) polls for approval files
+- When it finds the approval response, it processes the tool call
+- The Slack message is updated to show the approval status
+
+**Important Notes:**
+- The webhook server must be running and accessible for button clicks to work
+- Without it, buttons will show "This app can't handle interactive responses"
+- **Your machine doesn't need to be directly accessible from the internet** - ngrok handles the tunneling
+- ngrok creates a temporary public URL that forwards to your local server
+- The webhook server only needs to run when you want to use Slack buttons
+
+#### Alternative: Use Local Approval (No Webhook Needed)
+
+If you don't want to run a webhook server or use ngrok, you can use **local file-based approval**:
+
+1. **Don't configure Interactive Components** in Slack (or leave it disabled)
+2. **Keep Slack configured** for notifications (optional - you'll see approval requests in Slack)
+3. When a mutating operation needs approval:
+   - Check Claude Desktop logs for the approval file path
+   - Approve by running: `echo "approved" > /tmp/cite-before-act-approval-{id}.json`
+   - Reject by running: `echo "rejected" > /tmp/cite-before-act-approval-{id}.json`
+
+This way:
+- ✅ No webhook server needed
+- ✅ No internet access required for approvals
+- ✅ No ngrok needed
+- ✅ Still get Slack notifications (if configured)
+- ❌ Can't click buttons in Slack (must approve via files)
 
 ## Testing with Official MCP Filesystem Server
 

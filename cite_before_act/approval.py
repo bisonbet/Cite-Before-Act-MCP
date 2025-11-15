@@ -1,7 +1,11 @@
 """Approval workflow state management."""
 
 import asyncio
+import glob
+import json
+import os
 import sys
+import time
 import uuid
 from datetime import datetime, timedelta
 from enum import Enum
@@ -179,17 +183,22 @@ class ApprovalManager:
                 print(f"Error sending Slack approval request: {e}", file=sys.stderr)
                 slack_sent = False
 
-        # If Slack not available or failed, and local fallback is enabled, use local approval
-        if not slack_sent and self.use_local_fallback:
+        # Always use local approval in parallel (not just as fallback)
+        # This enables multiple approval methods simultaneously:
+        # - Slack notifications (if configured)
+        # - Native OS dialogs (macOS/Windows)
+        # - File-based approval (all platforms, shown in logs)
+        if self.use_local_fallback:
             if not self.local_approval:
-                # Create local approval handler if not provided
-                # Default to None (auto-detect) which will use file-based for stdio MCP
-                use_gui_str = os.getenv("USE_GUI_APPROVAL", "").lower()
-                use_gui = None if not use_gui_str else (use_gui_str == "true")
-                self.local_approval = LocalApproval(use_gui=use_gui)
+                # Create local approval handler
+                # Use native dialogs on macOS/Windows, file-based on Linux
+                use_native = os.getenv("USE_NATIVE_DIALOG", "true").lower() == "true"
+                self.local_approval = LocalApproval(
+                    use_native_dialog=use_native,
+                    use_file_based=True,  # Always show file-based instructions
+                )
             
-            # Request local approval asynchronously
-            print(f"Requesting local approval for {tool_name}...", file=sys.stderr, flush=True)
+            # Request local approval asynchronously (runs in parallel with Slack)
             asyncio.create_task(self._request_local_approval(approval_id, tool_name, description, arguments))
 
         # Start cleanup task if not already running
@@ -289,11 +298,13 @@ class ApprovalManager:
             self.slack_handler.unregister_approval_callback(approval_id)
 
     async def _cleanup_expired_approvals(self) -> None:
-        """Background task to clean up expired approvals."""
+        """Background task to clean up expired approvals and check for file-based responses."""
         while True:
             try:
-                await asyncio.sleep(10)  # Check every 10 seconds
-
+                # Check for file-based approval responses (from webhook server) frequently
+                await self._check_file_based_approvals()
+                
+                # Check for expired approvals every 10 seconds (but check file-based every second)
                 now = datetime.now()
                 expired_ids = []
 
@@ -302,16 +313,51 @@ class ApprovalManager:
                         request.timeout()
                         expired_ids.append(approval_id)
 
-                # Remove expired requests after a delay
+                # Remove expired requests after a delay (but don't block the loop)
                 for approval_id in expired_ids:
-                    # Keep for a bit in case we need to check status
-                    await asyncio.sleep(60)
-                    self._pending_approvals.pop(approval_id, None)
-                    if self.slack_handler:
-                        self.slack_handler.unregister_approval_callback(approval_id)
+                    # Schedule cleanup but don't wait
+                    asyncio.create_task(self._remove_expired_approval(approval_id))
+                
+                # Sleep 1 second before next check (for file-based approvals)
+                await asyncio.sleep(1)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"Error in cleanup task: {e}")
+                print(f"Error in cleanup task: {e}", file=sys.stderr)
+    
+    async def _remove_expired_approval(self, approval_id: str) -> None:
+        """Remove an expired approval after a delay."""
+        await asyncio.sleep(60)  # Keep for a bit in case we need to check status
+        self._pending_approvals.pop(approval_id, None)
+        if self.slack_handler:
+            self.slack_handler.unregister_approval_callback(approval_id)
+    
+    async def _check_file_based_approvals(self) -> None:
+        """Check for approval responses written by the webhook server."""
+        approval_files = glob.glob("/tmp/cite-before-act-slack-approval-*.json")
+        for approval_file in approval_files:
+            try:
+                with open(approval_file, "r") as f:
+                    data = json.load(f)
+                    approval_id = data.get("approval_id")
+                    approved = data.get("approved", False)
+                    
+                    if approval_id and approval_id in self._pending_approvals:
+                        request = self._pending_approvals[approval_id]
+                        if request.status == ApprovalStatus.PENDING:
+                            # Process the approval
+                            request.resolve(approved)
+                            print(f"Approval response received from webhook: {approval_id} -> {approved}", file=sys.stderr, flush=True)
+                        
+                        # Remove the file
+                        try:
+                            os.remove(approval_file)
+                        except Exception:
+                            pass
+            except (json.JSONDecodeError, KeyError, FileNotFoundError):
+                # File might be in use or invalid, skip it
+                pass
+            except Exception as e:
+                print(f"Error reading approval file {approval_file}: {e}", file=sys.stderr, flush=True)
 
