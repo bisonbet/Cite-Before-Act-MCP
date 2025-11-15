@@ -3,6 +3,7 @@
 from typing import Any, Callable, Dict, Optional
 
 from cite_before_act.approval import ApprovalManager
+from cite_before_act.debug import debug_log
 from cite_before_act.detection import DetectionEngine
 from cite_before_act.explain import ExplainEngine
 
@@ -53,14 +54,13 @@ class Middleware:
             RuntimeError: If upstream tool call is not configured
         """
         # Check if tool is mutating
-        import sys
-        print(f"[DEBUG] Middleware intercepting tool call: '{tool_name}'", file=sys.stderr)
+        debug_log("Middleware intercepting tool call: '{}'", tool_name)
         is_mutating = self.detection_engine.is_mutating(
             tool_name=tool_name,
             tool_description=tool_description,
             tool_schema=tool_schema,
         )
-        print(f"[DEBUG] Tool '{tool_name}' is_mutating={is_mutating}", file=sys.stderr)
+        debug_log("Tool '{}' is_mutating={}", tool_name, is_mutating)
 
         if not is_mutating:
             # Non-mutating: pass through directly
