@@ -584,15 +584,19 @@ DETECTION_ENABLE_METADATA=true     # Detect by tool description keywords
 ```
 
 **Detection Strategies (in priority order):**
-1. **Allowlist**: Explicitly listed tools always require approval (highest priority)
-2. **Blocklist**: Explicitly listed tools never require approval (overrides everything)
-3. **Convention-Based**: Automatically detects tools with mutating prefixes/suffixes:
+1. **Blocklist**: Explicitly listed tools never require approval (highest priority override)
+2. **Read-Only Detection**: Automatically detects read-only operations (no approval needed):
+   - **Prefixes**: `get_`, `read_`, `list_`, `search_`, `find_`, `query_`, `fetch_`, `retrieve_`, `show_`, `view_`, `describe_`, `info_`, `check_`, `verify_`, etc.
+   - **Suffixes**: `_get`, `_read`, `_list`, `_search`, `_find`, `_query`, `_fetch`, `_show`, `_view`, `_info`, etc.
+   - **Keywords**: "read", "get", "list", "search", "find", "query", "fetch", "retrieve", "show", "view", "describe", "info", "status", "check", "verify", "read-only", etc.
+3. **Allowlist**: Explicitly listed tools always require approval (high priority)
+4. **Convention-Based (Mutating)**: Automatically detects tools with mutating prefixes/suffixes:
    - **File/resource operations**: `write_`, `delete_`, `remove_`, `create_`, `update_`, `edit_`, `modify_`, `move_`, `copy_`, etc.
    - **Communication operations**: `send_`, `email_`, `message_`, `tweet_`, `post_`, `share_`, `publish_`, `notify_`, `broadcast_`, `dm_`, `sms_`, etc.
    - **Payment/transaction operations**: `charge_`, `payment_`, `transaction_`, `purchase_`, `refund_`, etc.
    - **HTTP/API operations**: `put_`, `patch_`, etc.
    - **Suffixes**: `_delete`, `_remove`, `_write`, `_create`, `_send`, `_email`, `_tweet`, `_charge`, etc.
-4. **Metadata-Based**: Analyzes tool descriptions for keywords like:
+5. **Metadata-Based (Mutating)**: Analyzes tool descriptions for keywords like:
    - **File operations**: "delete", "remove", "create", "write", "modify", "update", etc.
    - **Communication**: "send", "email", "message", "tweet", "post", "share", "publish", "notify", "broadcast", "dm", "sms", "social media", etc.
    - **Payments**: "charge", "payment", "transaction", "purchase", "refund", "bill", "invoice", etc.
@@ -606,6 +610,17 @@ DETECTION_ENABLE_METADATA=true     # Detect by tool description keywords
 - The allowlist is just for explicit overrides or tools that don't match conventions
 
 **Examples of automatically detected operations:**
+
+**Read-Only (No Approval Required):**
+- `search_repositories` → Detected as read-only via `search_` prefix
+- `get_file` → Detected as read-only via `get_` prefix
+- `list_issues` → Detected as read-only via `list_` prefix
+- `find_user` → Detected as read-only via `find_` prefix
+- `query_database` → Detected as read-only via `query_` prefix
+- Any tool with description "searches for repositories" → Detected as read-only via "search" keyword
+- Any tool with description "gets information about" → Detected as read-only via "get" keyword
+
+**Mutating (Requires Approval):**
 - `send_email` → Detected via `send_` prefix
 - `post_tweet` → Detected via `post_` prefix  
 - `email_user` → Detected via `email_` prefix
