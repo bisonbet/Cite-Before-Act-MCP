@@ -183,9 +183,12 @@ class ApprovalManager:
         if not slack_sent and self.use_local_fallback:
             if not self.local_approval:
                 # Create local approval handler if not provided
-                self.local_approval = LocalApproval(use_gui=False)
+                # Default to file-based for headless environments (Claude Desktop stdio)
+                use_gui = os.getenv("USE_GUI_APPROVAL", "false").lower() == "true"
+                self.local_approval = LocalApproval(use_gui=use_gui)
             
             # Request local approval asynchronously
+            print(f"Requesting local approval for {tool_name}...", file=sys.stderr, flush=True)
             asyncio.create_task(self._request_local_approval(approval_id, tool_name, description, arguments))
 
         # Start cleanup task if not already running
