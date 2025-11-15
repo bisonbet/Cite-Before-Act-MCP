@@ -273,6 +273,10 @@ class ProxyServer:
             required_params = set(input_schema.get("required", []))
             param_names = list(properties.keys())
             
+            # Debug: Print schema info for troubleshooting
+            import sys
+            print(f"[DEBUG] Tool '{tool_name}' schema - required: {required_params}, properties: {list(properties.keys())}", file=sys.stderr)
+            
             # Capture variables in closure (before creating function)
             name = tool_name
             desc = tool_info.get("description", "")
@@ -347,10 +351,11 @@ class ProxyServer:
                             collect_code += f"            arguments['{p}'] = bool({var_name})\n"
                     else:
                         # String, array, object - pass through as-is
+                        # For optional string parameters, filter out empty strings
                         if p in required_params:
                             collect_code += f"    arguments['{p}'] = {var_name}\n"
                         else:
-                            collect_code += f"    if {var_name} is not None:\n"
+                            collect_code += f"    if {var_name} is not None and {var_name} != '':\n"
                             collect_code += f"        arguments['{p}'] = {var_name}\n"
             else:
                 params_str = ""
@@ -439,6 +444,10 @@ class ProxyServer:
         if not self.upstream_process:
             raise RuntimeError("Upstream process not available")
 
+        # Debug: Log arguments being sent
+        import sys
+        print(f"[DEBUG] Calling upstream tool '{tool_name}' with arguments: {arguments}", file=sys.stderr)
+
         # Create tool call request
         request_id = self._request_id
         self._request_id += 1
@@ -468,6 +477,10 @@ class ProxyServer:
 
         response = json.loads(response_line.strip())
 
+        # Debug: Log response structure
+        import sys
+        print(f"[DEBUG] Upstream tool '{tool_name}' response structure: {json.dumps(response, indent=2)[:500]}", file=sys.stderr)
+
         if "error" in response:
             raise RuntimeError(f"Upstream tool call failed: {response['error']}")
 
@@ -475,13 +488,34 @@ class ProxyServer:
         if "result" in response:
             result = response["result"]
             if "content" in result and len(result["content"]) > 0:
-                content_item = result["content"][0]
-                if isinstance(content_item, dict):
-                    if "text" in content_item:
-                        return content_item["text"]
-                    elif "data" in content_item:
-                        return content_item["data"]
-                return content_item
+                # If there's only one content item, return it directly
+                # Otherwise, combine all content items
+                content_items = result["content"]
+                if len(content_items) == 1:
+                    content_item = content_items[0]
+                    if isinstance(content_item, dict):
+                        if "text" in content_item:
+                            return content_item["text"]
+                        elif "data" in content_item:
+                            return content_item["data"]
+                    return content_item
+                else:
+                    # Multiple content items - combine them
+                    combined = []
+                    for item in content_items:
+                        if isinstance(item, dict):
+                            if "text" in item:
+                                combined.append(item["text"])
+                            elif "data" in item:
+                                combined.append(item["data"])
+                            else:
+                                combined.append(str(item))
+                        else:
+                            combined.append(str(item))
+                    # Join with newlines if all are strings
+                    if all(isinstance(c, str) for c in combined):
+                        return "\n".join(combined)
+                    return combined
             return result
 
         return None
