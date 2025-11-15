@@ -49,6 +49,9 @@ pip install -e .
    - Under **"Bot Token Scopes"**, click **"Add an OAuth Scope"**
    - Add the following scope:
      - `chat:write` - Send messages (required for sending approval requests with buttons)
+     - `channels:read` - List public channels (required for channel name resolution)
+     - `groups:read` - List private channels (required if using private channels)
+     - `channels:join` - Join public channels (helps with channel resolution)
 4. **Install the App to Workspace**:
    - Scroll back up to the **"OAuth Tokens for Your Workspace"** section
    - Click **"Install to Workspace"** (or **"Reinstall to Workspace"** if already installed)
@@ -57,7 +60,22 @@ pip install -e .
    - After installation, copy the **"Bot User OAuth Token"** (starts with `xoxb-`)
    - This is the token you'll use in your `.env` file
 
+6. **Invite Bot to Your Channel**:
+   - **For PRIVATE channels** (required):
+     - Go to your private Slack channel
+     - Type: `/invite @YourBotName` (replace `YourBotName` with your bot's name)
+     - The bot must be a member of private channels to send messages
+   - **For PUBLIC channels** (optional):
+     - The bot can join public channels automatically if it has `channels:join` scope
+     - Or manually invite: `/invite @YourBotName`
+
 **Note**: Interactive components (button clicks) don't require a separate OAuth scope. They work via webhook URLs configured in the "Interactive Components" section. For basic approval workflows, the `chat:write` scope is sufficient. If you want to receive button click responses via webhook, see the [Slack App Setup](#slack-app-setup) section below for webhook configuration.
+
+**Important for Private Channels:**
+- Private channels don't use the `#` prefix in their names
+- Use the channel name without `#` in your config: `SLACK_CHANNEL=approvals` (not `#approvals`)
+- The bot MUST be invited to private channels: `/invite @YourBotName`
+- You need the `groups:read` scope for private channels
 
 ### Step 4: Configure Environment (Optional)
 
@@ -174,7 +192,11 @@ To use Cite-Before-Act MCP with Claude Desktop, you need to add the proxy server
    - **Quick Setup:** Copy the configuration from [`claude_desktop_config.example.json`](claude_desktop_config.example.json) and paste it into your `claude_desktop_config.json` file
    - **Manual Setup:** If adding manually, make sure to:
      - Replace `xoxb-your-token-here` with your actual Slack bot token (or remove `SLACK_BOT_TOKEN` and `SLACK_CHANNEL` to use local approval only)
-     - Replace `#approvals` with your desired Slack channel (or use a channel ID)
+     - Replace `#approvals` (public) or `approvals` (private) with your desired Slack channel:
+       - **Public channels**: Use `#channel-name` (e.g., `#approvals`)
+       - **Private channels**: Use `channel-name` without `#` (e.g., `approvals`)
+       - Or use channel ID: `C1234567890` (public) or `G1234567890` (private)
+     - **For private channels**: Bot must be invited (`/invite @YourBotName` in Slack)
      - Replace `/Users/yourname/mcp-test-workspace` with the **absolute path** to your test directory (e.g., `/Users/yourname/mcp-test-workspace` on macOS or `C:\Users\yourname\mcp-test-workspace` on Windows)
      - Make sure the `python` command in `command` points to the Python interpreter where you installed the package (you may need to use the full path, e.g., `/usr/local/bin/python3` or the path to your virtual environment's Python)
      - **Critical**: The `UPSTREAM_ARGS` must be a comma-separated string that will be split into arguments. The filesystem server needs the directory path as a separate argument.
@@ -349,6 +371,19 @@ This means the proxy isn't connecting to the upstream filesystem server. Check:
 - Verify Slack token and channel are correct
 - Check that there are no extra spaces or quotes in the JSON values
 
+**Issue: Slack channel_not_found or not_in_channel errors**
+- **For PRIVATE channels**:
+  - Use channel name **without** `#`: `SLACK_CHANNEL=approvals` (not `#approvals`)
+  - Bot **must** be invited to the channel: `/invite @YourBotName` in Slack
+  - Verify bot has `groups:read` scope in OAuth & Permissions
+  - Private channel IDs start with `G` (e.g., `G1234567890`)
+- **For PUBLIC channels**:
+  - Use channel name **with** `#`: `SLACK_CHANNEL=#approvals`
+  - Bot can auto-join if it has `channels:join` scope, or invite manually: `/invite @YourBotName`
+  - Public channel IDs start with `C` (e.g., `C1234567890`)
+- Verify the channel name is spelled correctly (case-sensitive)
+- Check that the bot token has the correct OAuth scopes installed
+
 **Issue: Filesystem operations failing**
 - Verify the test directory exists and is accessible
 - Check that the directory path in `UPSTREAM_ARGS` matches exactly (case-sensitive on Linux/macOS)
@@ -373,8 +408,11 @@ Configuration is done via environment variables or a `.env` file.
 # Required: Slack bot token (get from https://api.slack.com/apps)
 SLACK_BOT_TOKEN=xoxb-your-token-here
 
-# Optional: Channel to send approval requests (channel name or ID)
-SLACK_CHANNEL=#approvals
+# Optional: Channel to send approval requests
+# For PUBLIC channels: Use channel name with # (e.g., #approvals) or channel ID (C1234567890)
+# For PRIVATE channels: Use channel name WITHOUT # (e.g., approvals) or group ID (G1234567890)
+# Note: Bot must be invited to private channels: /invite @YourBotName
+SLACK_CHANNEL=approvals  # or #approvals for public channels
 
 # Optional: User ID for direct messages instead of channel
 # SLACK_USER_ID=U1234567890
@@ -558,6 +596,9 @@ To receive approval responses, you need to set up a Slack app with the proper pe
    - Under **"Bot Token Scopes"**, click **"Add an OAuth Scope"**
    - Add the following scope:
      - `chat:write` - Send messages (required for sending approval requests with interactive buttons)
+     - `channels:read` - List public channels (required for channel name resolution)
+     - `groups:read` - List private channels (required if using private channels)
+     - `channels:join` - Join public channels (helps with channel resolution)
 4. **Install to Workspace**:
    - Scroll back up to the **"OAuth Tokens for Your Workspace"** section
    - Click **"Install to Workspace"** (or **"Reinstall to Workspace"** if you've added new scopes)
@@ -565,6 +606,23 @@ To receive approval responses, you need to set up a Slack app with the proper pe
 5. **Copy the Bot Token**:
    - After installation, copy the **"Bot User OAuth Token"** (starts with `xoxb-`)
    - Save this token - you'll need it for your `.env` file
+
+6. **Invite Bot to Your Channel**:
+   - **For PRIVATE channels** (required):
+     - Go to your private Slack channel
+     - Type: `/invite @YourBotName` (replace `YourBotName` with your bot's name)
+     - The bot must be a member of private channels to send messages
+     - Private channels don't use the `#` prefix - use channel name without `#` in config
+   - **For PUBLIC channels** (optional):
+     - The bot can join public channels automatically if it has `channels:join` scope
+     - Or manually invite: `/invite @YourBotName`
+     - Public channels use `#` prefix - use `#channel-name` in config
+
+**Important for Private Channels:**
+- Use channel name **without** `#`: `SLACK_CHANNEL=approvals` (not `#approvals`)
+- Bot **must** be invited: `/invite @YourBotName` in the private channel
+- Requires `groups:read` scope (already listed above)
+- Private channel IDs start with `G` (e.g., `G1234567890`)
 
 ### Interactive Components Setup (Optional - for Webhook Responses)
 
