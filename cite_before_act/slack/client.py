@@ -91,6 +91,66 @@ class SlackClient:
         except Exception as e:
             raise SlackApiError(f"Failed to resolve channel '{channel}': {e}")
 
+    def _summarize_arguments(self, arguments: dict, tool_name: str) -> str:
+        """Summarize arguments for display, handling long content appropriately.
+        
+        Args:
+            arguments: Dictionary of arguments
+            tool_name: Name of the tool
+            
+        Returns:
+            JSON string with summarized arguments
+        """
+        if not arguments:
+            return "{}"
+        
+        summarized = {}
+        tool_lower = tool_name.lower()
+        
+        for key, value in arguments.items():
+            if isinstance(value, str):
+                # For file content, summarize instead of showing full text
+                if key == "content" and ("write" in tool_lower or "create" in tool_lower):
+                    lines = value.split("\n")
+                    char_count = len(value)
+                    if char_count > 100:
+                        if len(lines) > 1:
+                            summarized[key] = f"[{len(lines)} lines, {char_count} characters]"
+                        else:
+                            summarized[key] = f"[{char_count} characters]"
+                    else:
+                        # Short content - show it
+                        summarized[key] = value
+                elif len(value) > 100:
+                    # Long string - summarize
+                    lines = value.split("\n")
+                    if len(lines) > 1:
+                        summarized[key] = f"[{len(lines)} lines, {len(value)} characters]"
+                    else:
+                        summarized[key] = f"[{len(value)} characters]"
+                else:
+                    summarized[key] = value
+            elif isinstance(value, (int, float, bool)):
+                summarized[key] = value
+            elif isinstance(value, list):
+                if len(value) > 5:
+                    summarized[key] = f"[{len(value)} items]"
+                else:
+                    summarized[key] = value
+            elif isinstance(value, dict):
+                if len(str(value)) > 100:
+                    summarized[key] = "{...}"
+                else:
+                    summarized[key] = value
+            else:
+                str_value = str(value)
+                if len(str_value) > 100:
+                    summarized[key] = f"[{len(str_value)} characters]"
+                else:
+                    summarized[key] = value
+        
+        return json.dumps(summarized, indent=2)
+
     def send_approval_request(
         self,
         approval_id: str,

@@ -47,13 +47,14 @@ class ExplainEngine:
                     else:
                         description = f"Write {char_count:,} characters to {path}"
                 else:
-                    # Short content - show preview
+                    # Short content - show preview (single line for dialog compatibility)
                     first_line = lines[0] if lines else content
-                    if len(first_line) > 50:
-                        preview = first_line[:47] + "..."
+                    if len(first_line) > 60:
+                        preview = first_line[:57] + "..."
                     else:
                         preview = first_line
-                    description = f"Write to {path}:\n{preview}"
+                    # Use single line format for better dialog display
+                    description = f"Write to {path}: {preview}"
                 
                 return description
 
