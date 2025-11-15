@@ -1,9 +1,12 @@
 """FastMCP proxy server with middleware integration."""
 
 import asyncio
+import subprocess
 from typing import Any, Dict, Optional
 
 from fastmcp import FastMCP
+from fastmcp.client import Client
+from fastmcp.client.stdio import StdioServerParameters
 
 from cite_before_act.approval import ApprovalManager
 from cite_before_act.detection import DetectionEngine
@@ -26,7 +29,8 @@ class ProxyServer:
         self.settings = settings
         self.mcp: Optional[FastMCP] = None
         self.middleware: Optional[Middleware] = None
-        self.upstream_client = None
+        self.upstream_client: Optional[Client] = None
+        self.upstream_tools: Dict[str, Dict[str, Any]] = {}
 
         # Initialize components
         self._initialize_components()
@@ -70,24 +74,47 @@ class ProxyServer:
             approval_manager=approval_manager,
         )
 
-    async def _setup_upstream_connection(self) -> None:
-        """Set up connection to upstream MCP server."""
+    async def _connect_to_upstream(self) -> None:
+        """Connect to the upstream MCP server and fetch its tools."""
         if not self.settings.upstream:
             raise ValueError("Upstream server configuration not provided")
 
         upstream_config = self.settings.upstream
 
-        # Create FastMCP proxy
         if upstream_config.transport == "stdio" and upstream_config.command:
-            # For stdio, we'll need to use FastMCP's proxy capabilities
-            # This is a simplified version - actual implementation may vary
-            self.mcp = FastMCP("Cite-Before-Act MCP Proxy")
+            # Create stdio server parameters
+            server_params = StdioServerParameters(
+                command=upstream_config.command,
+                args=upstream_config.args,
+            )
+
+            # Connect to upstream server (don't use context manager - we need to keep it open)
+            self.upstream_client = Client(server_params)
+
+            # Initialize the connection
+            await self.upstream_client.initialize()
+
+            # List tools from upstream server
+            tools_result = await self.upstream_client.list_tools()
+            if tools_result and tools_result.tools:
+                for tool in tools_result.tools:
+                    self.upstream_tools[tool.name] = {
+                        "name": tool.name,
+                        "description": tool.description or "",
+                        "inputSchema": tool.inputSchema or {},
+                    }
+
         elif upstream_config.transport in ("http", "sse") and upstream_config.url:
-            # For HTTP/SSE, connect to remote server
-            self.mcp = FastMCP("Cite-Before-Act MCP Proxy")
-            # Note: FastMCP proxy setup would go here
+            # For HTTP/SSE, we'd use a different client setup
+            # This is a placeholder for future implementation
+            raise NotImplementedError("HTTP/SSE transport not yet implemented")
         else:
             raise ValueError("Invalid upstream server configuration")
+
+    async def _setup_proxy_server(self) -> None:
+        """Set up the FastMCP proxy server with upstream tools."""
+        # Create FastMCP server
+        self.mcp = FastMCP("Cite-Before-Act MCP Proxy")
 
         # Add explain tool
         @self.mcp.tool()
@@ -108,6 +135,33 @@ class ProxyServer:
                 )
             return f"Would execute {tool_name} with arguments {arguments}"
 
+        # Dynamically create proxy tools for each upstream tool
+        for tool_name, tool_info in self.upstream_tools.items():
+            # Create a closure to capture the tool_name
+            def make_tool_handler(name: str, desc: str):
+                @self.mcp.tool(name=name, description=desc)
+                async def tool_handler(**kwargs: Any) -> Any:
+                    """Proxy tool handler that routes through middleware."""
+                    if not self.middleware:
+                        raise RuntimeError("Middleware not initialized")
+
+                    # Get tool description and schema from upstream
+                    tool_desc = self.upstream_tools.get(name, {}).get("description", "")
+                    tool_schema = self.upstream_tools.get(name, {}).get("inputSchema", {})
+
+                    # Route through middleware
+                    return await self.middleware.call_tool(
+                        tool_name=name,
+                        arguments=kwargs,
+                        tool_description=tool_desc,
+                        tool_schema=tool_schema,
+                    )
+                
+                return tool_handler
+
+            # Register the tool with FastMCP
+            make_tool_handler(tool_name, tool_info.get("description", f"Proxy for {tool_name}"))
+
         # Set up middleware to call upstream tools
         if self.middleware:
             self.middleware.set_upstream_tool_call(self._call_upstream_tool)
@@ -122,13 +176,29 @@ class ProxyServer:
         Returns:
             Result from upstream tool
         """
-        if not self.mcp:
-            raise RuntimeError("MCP server not initialized")
+        if not self.upstream_client:
+            # Reconnect if needed
+            await self._connect_to_upstream()
 
-        # Use FastMCP's tool calling mechanism
-        # This is a simplified version - actual implementation depends on FastMCP API
-        # In practice, we'd use the upstream client to call tools
-        raise NotImplementedError("Upstream tool calling needs FastMCP client implementation")
+        if not self.upstream_client:
+            raise RuntimeError("Upstream client not available")
+
+        # Call the tool on upstream server
+        result = await self.upstream_client.call_tool(tool_name, arguments)
+        
+        # Extract the result content
+        if result and result.content:
+            # FastMCP returns content as a list, get the first item
+            if len(result.content) > 0:
+                content_item = result.content[0]
+                if hasattr(content_item, "text"):
+                    return content_item.text
+                elif hasattr(content_item, "data"):
+                    return content_item.data
+                else:
+                    return str(content_item)
+        
+        return result
 
     async def create_server(self) -> FastMCP:
         """Create and configure the FastMCP server.
@@ -136,14 +206,14 @@ class ProxyServer:
         Returns:
             Configured FastMCP server instance
         """
-        await self._setup_upstream_connection()
+        # Connect to upstream server first
+        await self._connect_to_upstream()
+
+        # Set up proxy server with upstream tools
+        await self._setup_proxy_server()
 
         if not self.mcp:
             raise RuntimeError("Failed to create MCP server")
-
-        # Override tool call handler to use middleware
-        # This is a simplified version - actual implementation depends on FastMCP API
-        # We need to intercept tool calls and route through middleware
 
         return self.mcp
 
@@ -160,17 +230,18 @@ class ProxyServer:
             host: Host for HTTP/SSE transport
             port: Port for HTTP/SSE transport
         """
+        # Create server first (this connects to upstream and sets up tools)
+        asyncio.run(self.create_server())
+
         if not self.mcp:
-            # Create server synchronously for stdio
-            asyncio.run(self.create_server())
+            raise RuntimeError("Failed to create MCP server")
 
-        if self.mcp:
-            if transport == "stdio":
-                self.mcp.run(transport="stdio")
-            elif transport == "http":
-                self.mcp.run(transport="http", host=host, port=port)
-            elif transport == "sse":
-                self.mcp.run(transport="sse", host=host, port=port)
-            else:
-                raise ValueError(f"Unsupported transport: {transport}")
-
+        # Run the server (this is blocking and handles the event loop)
+        if transport == "stdio":
+            self.mcp.run(transport="stdio")
+        elif transport == "http":
+            self.mcp.run(transport="http", host=host, port=port)
+        elif transport == "sse":
+            self.mcp.run(transport="sse", host=host, port=port)
+        else:
+            raise ValueError(f"Unsupported transport: {transport}")
