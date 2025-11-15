@@ -787,13 +787,21 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except KeyboardInterrupt:
-        print("\n\nSetup cancelled by user.")
-        sys.exit(1)
-    except Exception as e:
-        print_error(f"\nSetup failed: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    # Don't run interactive setup if being called by pip/setuptools
+    # (when pip install -e . calls this as a build backend)
+    if any(arg in sys.argv for arg in ['egg_info', 'editable_wheel', 'dist_info']):
+        # This is being called as a build backend, not as the interactive setup
+        # setuptools will handle this automatically
+        pass
+    else:
+        # This is the interactive setup wizard
+        try:
+            sys.exit(main())
+        except KeyboardInterrupt:
+            print("\n\nSetup cancelled by user.")
+            sys.exit(1)
+        except Exception as e:
+            print_error(f"\nSetup failed: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
