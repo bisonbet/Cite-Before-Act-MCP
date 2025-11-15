@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional, Union
 from fastmcp import FastMCP
 
 from cite_before_act.approval import ApprovalManager
+from cite_before_act.debug import debug_log
 from cite_before_act.detection import DetectionEngine
 from cite_before_act.explain import ExplainEngine
 from cite_before_act.local_approval import LocalApproval
@@ -274,8 +275,8 @@ class ProxyServer:
             param_names = list(properties.keys())
             
             # Debug: Print schema info for troubleshooting
-            import sys
-            print(f"[DEBUG] Tool '{tool_name}' schema - required: {required_params}, properties: {list(properties.keys())}", file=sys.stderr)
+            debug_log("Tool '{}' schema - required: {}, properties: {}", 
+                     tool_name, required_params, list(properties.keys()))
             
             # Capture variables in closure (before creating function)
             name = tool_name
@@ -445,8 +446,7 @@ class ProxyServer:
             raise RuntimeError("Upstream process not available")
 
         # Debug: Log arguments being sent
-        import sys
-        print(f"[DEBUG] Calling upstream tool '{tool_name}' with arguments: {arguments}", file=sys.stderr)
+        debug_log("Calling upstream tool '{}' with arguments: {}", tool_name, arguments)
 
         # Create tool call request
         request_id = self._request_id
@@ -478,8 +478,8 @@ class ProxyServer:
         response = json.loads(response_line.strip())
 
         # Debug: Log response structure
-        import sys
-        print(f"[DEBUG] Upstream tool '{tool_name}' response structure: {json.dumps(response, indent=2)[:500]}", file=sys.stderr)
+        debug_log("Upstream tool '{}' response structure: {}", 
+                 tool_name, json.dumps(response, indent=2)[:500])
 
         if "error" in response:
             raise RuntimeError(f"Upstream tool call failed: {response['error']}")

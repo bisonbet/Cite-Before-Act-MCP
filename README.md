@@ -550,6 +550,44 @@ APPROVAL_TIMEOUT_SECONDS=300  # Default: 300 (5 minutes)
 
 ## Configuration Reference
 
+### Debug Logging
+
+Debug logging is available to help troubleshoot issues with tool detection, upstream server communication, and middleware interception. By default, debug logging is **disabled** to keep logs clean.
+
+**Enable debug logging:**
+
+Set the `DEBUG` environment variable to `true` (or `1`, `yes`, `on`):
+
+```bash
+# In your .env file
+DEBUG=true
+
+# Or in Claude Desktop config
+"env": {
+  "DEBUG": "true",
+  ...
+}
+```
+
+**What gets logged when DEBUG is enabled:**
+
+- **Tool Detection**: Which detection strategies matched (allowlist, blocklist, convention, metadata, read-only)
+- **Middleware**: Tool interception and mutating status
+- **Upstream Communication**: Arguments sent to upstream tools and response structures
+- **Schema Information**: Tool parameter schemas and required/optional fields
+
+**Example debug output:**
+
+```
+[DEBUG] Middleware intercepting tool call: 'create_repository'
+[DEBUG] Tool 'create_repository' detected as mutating via convention (prefix/suffix)
+[DEBUG] Tool 'create_repository' is_mutating=True
+[DEBUG] Calling upstream tool 'create_repository' with arguments: {'name': 'test', ...}
+[DEBUG] Upstream tool 'create_repository' response structure: {...}
+```
+
+**Note:** Debug logs are written to `stderr` and will appear in Claude Desktop's logs. They do not affect normal operation when disabled.
+
 ### Environment Variables
 
 See [`.env.example`](.env.example) for complete documentation. Key variables:
