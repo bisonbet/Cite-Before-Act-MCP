@@ -72,13 +72,30 @@ class ExplainEngine:
                 if verb in desc_lower:
                     # Try to extract a more complete phrase
                     idx = desc_lower.find(verb)
-                    if idx > 0:
-                        # Get context around the verb
-                        start = max(0, idx - 20)
-                        end = min(len(desc_lower), idx + 50)
-                        snippet = desc_lower[start:end].strip()
-                        # Clean up
-                        snippet = snippet.split(".")[0].split(",")[0]
+                    if idx >= 0:
+                        # Get context around the verb, ensuring we don't cut off the verb itself
+                        # Start from the beginning of the sentence or a reasonable point before the verb
+                        sentence_start = desc_lower.rfind(".", 0, idx)
+                        if sentence_start < 0:
+                            sentence_start = desc_lower.rfind(" ", 0, max(0, idx - 30))
+                        if sentence_start < 0:
+                            sentence_start = 0
+                        else:
+                            sentence_start += 1  # Skip the period/space
+                        
+                        # End at sentence end or reasonable limit
+                        sentence_end = desc_lower.find(".", idx)
+                        if sentence_end < 0:
+                            sentence_end = min(len(desc_lower), idx + 100)
+                        else:
+                            sentence_end += 1  # Include the period
+                        
+                        snippet = desc_lower[sentence_start:sentence_end].strip()
+                        # Clean up - remove extra whitespace
+                        snippet = " ".join(snippet.split())
+                        # Capitalize first letter
+                        if snippet:
+                            snippet = snippet[0].upper() + snippet[1:] if len(snippet) > 1 else snippet.upper()
                         return snippet
 
         # Fall back to tool name analysis
