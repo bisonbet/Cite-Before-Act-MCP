@@ -11,7 +11,7 @@
       "env": {
         "SLACK_BOT_TOKEN": "xoxb-your-token-here",
         "SLACK_CHANNEL": "#approvals",
-        "DETECTION_ALLOWLIST": "write_file,edit_file,create_directory,move_file,delete_file",
+        "DETECTION_ALLOWLIST": "write_file,edit_file,create_directory,move_file",
         "DETECTION_BLOCKLIST": "read_text_file,read_media_file,list_directory,get_file_info",
         "DETECTION_ENABLE_CONVENTION": "true",
         "DETECTION_ENABLE_METADATA": "true",

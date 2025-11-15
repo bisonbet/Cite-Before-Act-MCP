@@ -18,10 +18,9 @@ class DetectionEngine:
 
     # Common mutating prefixes
     MUTATING_PREFIXES = {
-        "send_",
+        # File/resource operations
         "delete_",
         "remove_",
-        "charge_",
         "update_",
         "create_",
         "write_",
@@ -31,14 +30,32 @@ class DetectionEngine:
         "copy_",
         "append_",
         "erase_",
-        "publish_",
+        # Communication operations
+        "send_",
+        "email_",
+        "message_",
+        "tweet_",
         "post_",
+        "share_",
+        "publish_",
+        "notify_",
+        "broadcast_",
+        "dm_",
+        "sms_",
+        # Payment/transaction operations
+        "charge_",
+        "payment_",
+        "transaction_",
+        "purchase_",
+        "refund_",
+        # HTTP/API operations
         "put_",
         "patch_",
     }
 
     # Common mutating suffixes
     MUTATING_SUFFIXES = {
+        # File/resource operations
         "_delete",
         "_remove",
         "_update",
@@ -46,13 +63,30 @@ class DetectionEngine:
         "_write",
         "_edit",
         "_modify",
+        # Communication operations
         "_send",
+        "_email",
+        "_message",
+        "_tweet",
+        "_post",
+        "_share",
+        "_publish",
+        "_notify",
+        "_broadcast",
+        # Payment/transaction operations
         "_charge",
+        "_payment",
+        "_transaction",
+        "_purchase",
     }
 
     # Keywords in descriptions that suggest mutation
     MUTATING_KEYWORDS = {
+        # General mutation
         "mutate",
+        "change",
+        "alter",
+        # File/resource operations
         "delete",
         "remove",
         "create",
@@ -60,16 +94,38 @@ class DetectionEngine:
         "update",
         "modify",
         "edit",
-        "send",
-        "charge",
-        "publish",
-        "post",
         "destroy",
         "erase",
         "overwrite",
         "append",
         "move",
         "rename",
+        # Communication operations
+        "send",
+        "email",
+        "message",
+        "tweet",
+        "post",
+        "share",
+        "publish",
+        "notify",
+        "broadcast",
+        "dm",
+        "direct message",
+        "sms",
+        "text",
+        # Payment/transaction operations
+        "charge",
+        "payment",
+        "transaction",
+        "purchase",
+        "refund",
+        "bill",
+        "invoice",
+        # Social media
+        "social media",
+        "social",
+        "media",
     }
 
     def __init__(
@@ -108,24 +164,19 @@ class DetectionEngine:
         Returns:
             True if tool is detected as mutating, False otherwise
         """
-        # Check allowlist first (highest priority)
+        # Check allowlist first (highest priority - explicit mutating)
         if self.allowlist and tool_name in self.allowlist:
             return True
 
-        # Check blocklist (explicit non-mutating)
+        # Check blocklist (explicit non-mutating - highest priority override)
         if self.blocklist and tool_name in self.blocklist:
             return False
 
-        # If blocklist exists and tool is not in it, and we have a blocklist strategy,
-        # everything else is mutating
-        if self.blocklist and not self.allowlist:
-            return True
-
-        # Convention-based detection
+        # Convention-based detection (works for any tool, not just allowlist)
         if self.enable_convention and self._check_convention(tool_name):
             return True
 
-        # Metadata-based detection
+        # Metadata-based detection (works for any tool, not just allowlist)
         if self.enable_metadata:
             description = tool_description or ""
             if tool_schema:
@@ -133,11 +184,8 @@ class DetectionEngine:
             if self._check_metadata(description):
                 return True
 
-        # Default: if allowlist exists and tool not in it, assume non-mutating
-        if self.allowlist:
-            return False
-
         # Default: if no strategies match, assume non-mutating (safe default)
+        # Note: Allowlist is additive - it doesn't prevent convention/metadata detection
         return False
 
     def _check_convention(self, tool_name: str) -> bool:

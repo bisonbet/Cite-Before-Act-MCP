@@ -551,24 +551,47 @@ SLACK_USER_ID=U1234567890       # For DMs instead of channel
 ### Detection Settings
 
 ```bash
-# Explicit allowlist (always require approval)
-DETECTION_ALLOWLIST=write_file,delete_file,send_email
+# Explicit allowlist (additive - marks these as mutating, but doesn't disable other detection)
+DETECTION_ALLOWLIST=write_file,edit_file,create_directory,move_file
 
-# Explicit blocklist (never require approval)
+# Explicit blocklist (override - marks these as non-mutating even if convention/metadata detects them)
 DETECTION_BLOCKLIST=read_file,list_directory,get_info
 
-# Enable detection strategies
-DETECTION_ENABLE_CONVENTION=true   # Detect by naming (write_, delete_, etc.)
-DETECTION_ENABLE_METADATA=true     # Detect by tool description
+# Enable detection strategies (work for ALL tools, not just allowlist)
+DETECTION_ENABLE_CONVENTION=true   # Detect by naming (write_, delete_, remove_, send_, etc.)
+DETECTION_ENABLE_METADATA=true     # Detect by tool description keywords
 ```
 
-**Detection Strategies:**
-1. **Allowlist**: Explicitly listed tools always require approval
-2. **Blocklist**: Explicitly listed tools never require approval
-3. **Convention-Based**: Detects common prefixes/suffixes (`write_`, `delete_`, `send_`, etc.)
-4. **Metadata-Based**: Analyzes tool descriptions for keywords
+**Detection Strategies (in priority order):**
+1. **Allowlist**: Explicitly listed tools always require approval (highest priority)
+2. **Blocklist**: Explicitly listed tools never require approval (overrides everything)
+3. **Convention-Based**: Automatically detects tools with mutating prefixes/suffixes:
+   - **File/resource operations**: `write_`, `delete_`, `remove_`, `create_`, `update_`, `edit_`, `modify_`, `move_`, `copy_`, etc.
+   - **Communication operations**: `send_`, `email_`, `message_`, `tweet_`, `post_`, `share_`, `publish_`, `notify_`, `broadcast_`, `dm_`, `sms_`, etc.
+   - **Payment/transaction operations**: `charge_`, `payment_`, `transaction_`, `purchase_`, `refund_`, etc.
+   - **HTTP/API operations**: `put_`, `patch_`, etc.
+   - **Suffixes**: `_delete`, `_remove`, `_write`, `_create`, `_send`, `_email`, `_tweet`, `_charge`, etc.
+4. **Metadata-Based**: Analyzes tool descriptions for keywords like:
+   - **File operations**: "delete", "remove", "create", "write", "modify", "update", etc.
+   - **Communication**: "send", "email", "message", "tweet", "post", "share", "publish", "notify", "broadcast", "dm", "sms", "social media", etc.
+   - **Payments**: "charge", "payment", "transaction", "purchase", "refund", "bill", "invoice", etc.
 
-All strategies use OR logic - if any strategy detects mutation, approval is required.
+**Important:** The allowlist is **additive**, not exclusive. Convention and metadata detection work for **all tools**, not just those in the allowlist. This means:
+- **File operations** like `delete_file`, `remove_item`, `write_file` are automatically detected
+- **Communication operations** like `send_email`, `post_tweet`, `share_content`, `notify_user` are automatically detected
+- **Payment operations** like `charge_card`, `process_payment`, `make_purchase` are automatically detected
+- Tools with descriptions containing "delete", "send email", "post to social media", "charge payment", etc. are automatically detected
+- You don't need to enumerate every possible mutating tool
+- The allowlist is just for explicit overrides or tools that don't match conventions
+
+**Examples of automatically detected operations:**
+- `send_email` → Detected via `send_` prefix
+- `post_tweet` → Detected via `post_` prefix  
+- `email_user` → Detected via `email_` prefix
+- `charge_payment` → Detected via `charge_` prefix
+- `notify_team` → Detected via `notify_` prefix
+- Any tool with description "sends an email message" → Detected via "send" and "email" keywords
+- Any tool with description "posts content to social media" → Detected via "post" and "social media" keywords
 
 ### Upstream Server
 

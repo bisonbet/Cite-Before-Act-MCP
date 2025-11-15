@@ -58,6 +58,19 @@ class ExplainEngine:
                 
                 return description
 
+        # For communication operations, use impact description directly (it's already well-formatted)
+        tool_lower = tool_name.lower()
+        if any(op in tool_lower for op in ["email", "tweet", "post", "send", "message", "dm", "share", "notify", "broadcast"]):
+            if impact:
+                # Impact already contains a well-formatted description
+                return impact
+            # Fall through to general handling if no impact
+
+        # For payment operations, use impact description directly
+        if any(op in tool_lower for op in ["charge", "payment", "transaction", "purchase"]):
+            if impact:
+                return impact
+
         # For other operations, use concise parameter summary
         params_desc = self._describe_parameters(arguments, tool_name)
         
@@ -95,17 +108,31 @@ class ExplainEngine:
             # Extract action verb from description
             desc_lower = tool_description.lower()
             for verb in [
+                # File/resource operations
                 "create",
                 "delete",
                 "write",
                 "read",
                 "update",
                 "modify",
-                "send",
-                "charge",
                 "move",
                 "copy",
                 "edit",
+                # Communication operations
+                "send",
+                "email",
+                "message",
+                "tweet",
+                "post",
+                "share",
+                "publish",
+                "notify",
+                "broadcast",
+                # Payment/transaction operations
+                "charge",
+                "payment",
+                "transaction",
+                "purchase",
             ]:
                 if verb in desc_lower:
                     # Try to extract a more complete phrase
@@ -146,10 +173,28 @@ class ExplainEngine:
             return "delete or remove a file or resource"
         elif "update" in tool_lower or "modify" in tool_lower or "edit" in tool_lower:
             return "update or modify an existing file or resource"
+        elif "email" in tool_lower:
+            return "send an email message"
+        elif "tweet" in tool_lower:
+            return "post a tweet to Twitter/X"
+        elif "post" in tool_lower and ("social" in tool_lower or "media" in tool_lower):
+            return "post to social media"
+        elif "post" in tool_lower:
+            return "create or publish a post"
         elif "send" in tool_lower:
             return "send a message or notification"
-        elif "charge" in tool_lower:
-            return "charge a payment or transaction"
+        elif "message" in tool_lower or "dm" in tool_lower:
+            return "send a direct message"
+        elif "share" in tool_lower:
+            return "share content or information"
+        elif "publish" in tool_lower:
+            return "publish content"
+        elif "notify" in tool_lower or "broadcast" in tool_lower:
+            return "send a notification or broadcast"
+        elif "charge" in tool_lower or "payment" in tool_lower or "transaction" in tool_lower:
+            return "process a payment or transaction"
+        elif "purchase" in tool_lower:
+            return "make a purchase"
         elif "move" in tool_lower:
             return "move or rename a file or resource"
         elif "copy" in tool_lower:
@@ -236,17 +281,56 @@ class ExplainEngine:
                 path = arguments.get("path") or arguments.get("file", "unknown")
                 return f"will permanently delete {path}"
 
-        # Email/messaging
-        if "send" in tool_lower:
-            if "to" in arguments or "recipient" in arguments:
-                recipient = arguments.get("to") or arguments.get("recipient", "unknown")
-                return f"will send message to {recipient}"
+        # Email operations
+        if "email" in tool_lower:
+            recipient = arguments.get("to") or arguments.get("recipient") or arguments.get("email", "unknown")
+            subject = arguments.get("subject", "")
+            if subject:
+                return f"will send email to {recipient}: {subject}"
+            return f"will send email to {recipient}"
+        
+        # Social media posts
+        if "tweet" in tool_lower:
+            text = arguments.get("text") or arguments.get("content", "")
+            if text and len(text) > 50:
+                return f"will post tweet: {text[:47]}..."
+            elif text:
+                return f"will post tweet: {text}"
+            return "will post a tweet"
+        
+        if "post" in tool_lower and ("social" in tool_lower or "media" in tool_lower):
+            platform = arguments.get("platform", "social media")
+            text = arguments.get("text") or arguments.get("content", "")
+            if text and len(text) > 50:
+                return f"will post to {platform}: {text[:47]}..."
+            elif text:
+                return f"will post to {platform}: {text}"
+            return f"will post to {platform}"
+        
+        # Messaging (general)
+        if "send" in tool_lower or "message" in tool_lower or "dm" in tool_lower:
+            recipient = arguments.get("to") or arguments.get("recipient") or arguments.get("user", "unknown")
+            text = arguments.get("text") or arguments.get("content") or arguments.get("message", "")
+            if text and len(text) > 50:
+                return f"will send message to {recipient}: {text[:47]}..."
+            elif text:
+                return f"will send message to {recipient}: {text}"
+            return f"will send message to {recipient}"
 
-        # Payment
-        if "charge" in tool_lower or "payment" in tool_lower:
-            if "amount" in arguments:
-                amount = arguments.get("amount", "unknown")
-                return f"will charge amount {amount}"
+        # Payment/transaction operations
+        if "charge" in tool_lower or "payment" in tool_lower or "transaction" in tool_lower:
+            amount = arguments.get("amount") or arguments.get("value", "unknown")
+            currency = arguments.get("currency", "")
+            if currency:
+                return f"will process payment of {amount} {currency}"
+            return f"will process payment of {amount}"
+        
+        if "purchase" in tool_lower:
+            amount = arguments.get("amount") or arguments.get("price", "unknown")
+            item = arguments.get("item") or arguments.get("product", "")
+            if item:
+                return f"will purchase {item} for {amount}"
+            return f"will make purchase for {amount}"
 
         # Directory operations
         if "directory" in tool_lower or "folder" in tool_lower:
