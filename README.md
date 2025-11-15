@@ -103,6 +103,162 @@ python -m server.main --transport stdio
 
 The server is now ready to intercept tool calls and require approval for mutating operations!
 
+## Configuring Claude Desktop
+
+To use Cite-Before-Act MCP with Claude Desktop, you need to add the proxy server to Claude Desktop's MCP configuration.
+
+### Step-by-Step Claude Desktop Setup
+
+1. **Locate Claude Desktop Configuration File**:
+   - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+   - **Linux**: `~/.config/Claude/claude_desktop_config.json`
+
+2. **Open the Configuration File**:
+   - If the file doesn't exist, create it
+   - Use any text editor to open it
+
+3. **Add the Cite-Before-Act MCP Server**:
+   - The file should be a JSON object with an `mcpServers` key
+   - Add the following configuration:
+
+   ```json
+   {
+     "mcpServers": {
+       "cite-before-act": {
+         "command": "python",
+         "args": [
+           "-m",
+           "server.main",
+           "--transport",
+           "stdio"
+         ],
+         "env": {
+           "SLACK_BOT_TOKEN": "xoxb-your-token-here",
+           "SLACK_CHANNEL": "#approvals",
+           "DETECTION_ALLOWLIST": "write_file,edit_file,create_directory,move_file,delete_file",
+           "DETECTION_BLOCKLIST": "read_text_file,read_media_file,list_directory,get_file_info",
+           "DETECTION_ENABLE_CONVENTION": "true",
+           "DETECTION_ENABLE_METADATA": "true",
+           "UPSTREAM_COMMAND": "npx",
+           "UPSTREAM_ARGS": "-y,@modelcontextprotocol/server-filesystem,~/mcp-test-workspace",
+           "UPSTREAM_TRANSPORT": "stdio",
+           "APPROVAL_TIMEOUT_SECONDS": "300",
+           "ENABLE_SLACK": "true"
+         }
+       }
+     }
+   }
+   ```
+
+   **Important Notes**:
+   - Replace `xoxb-your-token-here` with your actual Slack bot token
+   - Replace `#approvals` with your desired Slack channel (or use a channel ID)
+   - Replace `~/mcp-test-workspace` with the path to your test directory (use absolute path if needed)
+   - Make sure the `python` command in `command` points to the Python interpreter where you installed the package (you may need to use the full path, e.g., `/usr/local/bin/python3` or the path to your virtual environment's Python)
+
+4. **Complete Example Configuration**:
+   
+   If you already have other MCP servers configured, your file might look like this:
+
+   ```json
+   {
+     "mcpServers": {
+       "cite-before-act": {
+         "command": "python",
+         "args": [
+           "-m",
+           "server.main",
+           "--transport",
+           "stdio"
+         ],
+         "env": {
+           "SLACK_BOT_TOKEN": "xoxb-1234567890-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx",
+           "SLACK_CHANNEL": "#approvals",
+           "DETECTION_ALLOWLIST": "write_file,edit_file,create_directory,move_file,delete_file",
+           "DETECTION_BLOCKLIST": "read_text_file,read_media_file,list_directory,get_file_info",
+           "DETECTION_ENABLE_CONVENTION": "true",
+           "DETECTION_ENABLE_METADATA": "true",
+           "UPSTREAM_COMMAND": "npx",
+           "UPSTREAM_ARGS": "-y,@modelcontextprotocol/server-filesystem,/Users/yourname/mcp-test-workspace",
+           "UPSTREAM_TRANSPORT": "stdio",
+           "APPROVAL_TIMEOUT_SECONDS": "300",
+           "ENABLE_SLACK": "true"
+         }
+       },
+       "other-server": {
+         "command": "other-command",
+         "args": ["arg1", "arg2"]
+       }
+     }
+   }
+   ```
+
+5. **Save the Configuration File**:
+   - Save the file with the `.json` extension
+   - Make sure the JSON is valid (no trailing commas, proper quotes, etc.)
+
+6. **Restart Claude Desktop**:
+   - Completely quit Claude Desktop (not just close the window)
+   - Reopen Claude Desktop
+   - The MCP server should now be available
+
+7. **Verify the Connection**:
+   - In Claude Desktop, you should see the Cite-Before-Act MCP server listed
+   - The server will expose tools from the upstream filesystem server
+   - You should also see an `explain` tool for generating previews
+
+### Using Python from a Virtual Environment
+
+If you installed the package in a virtual environment, use the full path to that Python:
+
+```json
+{
+  "mcpServers": {
+    "cite-before-act": {
+      "command": "/path/to/venv/bin/python",
+      "args": [
+        "-m",
+        "server.main",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        // ... your environment variables
+      }
+    }
+  }
+}
+```
+
+To find your virtual environment's Python path:
+```bash
+# If using venv
+which python  # after activating the venv
+
+# If using conda
+conda info --envs  # then use the path shown
+```
+
+### Troubleshooting Claude Desktop Configuration
+
+**Issue: MCP server not appearing in Claude Desktop**
+- Verify the JSON file is valid (use a JSON validator)
+- Check that the Python path is correct
+- Ensure all dependencies are installed in that Python environment
+- Check Claude Desktop's logs for error messages
+- Make sure you completely restarted Claude Desktop (quit and reopen)
+
+**Issue: "Command not found" errors**
+- Use the full path to Python instead of just `python`
+- Verify the Python environment has `cite-before-act-mcp` installed
+- Check that `server.main` module can be imported: `python -m server.main --help`
+
+**Issue: Environment variables not working**
+- Make sure all environment variables are in the `env` object
+- Use absolute paths for directory references
+- Verify Slack token and channel are correct
+
 ## Installation
 
 ### Install Dependencies
@@ -333,9 +489,9 @@ The official MCP Filesystem Server is an ideal test target because it provides b
 
 ### Test Commands
 
-Once your proxy server is running and connected to an MCP client (like Claude Desktop or another MCP client), you can test the approval workflow with these operations.
+**For Claude Desktop Users**: You don't need to use these JSON commands directly. Simply ask Claude in natural language (e.g., "create a file called test.txt"). The JSON below shows what happens internally - it's for reference only.
 
-**Note:** The JSON format below shows the internal tool call structure. When using an MCP client, you'll typically interact through the client's interface (e.g., asking Claude to "create a file called test.txt" or using the MCP Inspector tool interface).
+**For Developers/Advanced Users**: The JSON format shows the internal tool call structure. If you're using MCP Inspector or another tool, you can use these JSON structures directly.
 
 #### 1. Create a File (Requires Approval)
 
@@ -409,56 +565,64 @@ Once your proxy server is running and connected to an MCP client (like Claude De
 
 ### Testing Workflow Example
 
-#### Complete End-to-End Test
+#### Complete End-to-End Test with Claude Desktop
 
-1. **Start the proxy server**:
-   ```bash
-   python -m server.main --transport stdio
-   ```
+**Prerequisites**: Make sure you've completed the [Claude Desktop configuration](#configuring-claude-desktop) above.
 
-2. **Configure your MCP client** (e.g., Claude Desktop) to use the proxy server:
-   - Edit your MCP configuration file (location varies by client)
-   - Point to the proxy server instead of the filesystem server directly
-   - Example configuration:
-     ```json
-     {
-       "mcpServers": {
-         "cite-before-act": {
-           "command": "python",
-           "args": ["-m", "server.main", "--transport", "stdio"]
-         }
-       }
-     }
-     ```
+1. **Verify Claude Desktop is configured**:
+   - Open Claude Desktop
+   - The Cite-Before-Act MCP server should be listed and connected
+   - You should see tools from the filesystem server available
 
-3. **Test non-mutating operation** (should work immediately):
-   - In your MCP client, ask to "list the contents of ~/mcp-test-workspace"
-   - Or use tool: `list_directory` with path `~/mcp-test-workspace`
-   - Should return directory listing **without** requiring Slack approval
+2. **Test non-mutating operation** (should work immediately):
+   - In Claude Desktop, type: "List the contents of ~/mcp-test-workspace"
+   - Claude will use the `list_directory` tool
+   - Should return directory listing **immediately without** requiring Slack approval
+   - This confirms non-mutating operations pass through correctly
 
-4. **Test file creation** (should require approval):
-   - In your MCP client, ask to "create a file called test.txt in ~/mcp-test-workspace with content 'Hello, World!'"
-   - Or use tool: `write_file` with path `~/mcp-test-workspace/test.txt` and content `Hello, World!`
-   - **Check your Slack channel** - you should see an approval request
+3. **Test file creation** (should require approval):
+   - In Claude Desktop, type: "Create a file called test.txt in ~/mcp-test-workspace with the content 'Hello, World! This is a test file.'"
+   - Claude will attempt to use the `write_file` tool
+   - **Check your Slack channel** (#approvals or your configured channel) - you should see an approval request with:
+     - Tool name: `write_file`
+     - Description of what will happen
+     - Arguments that will be passed
+     - Two buttons: **"✅ Approve"** and **"❌ Reject"**
    - Click the **"✅ Approve"** button in Slack
-   - File should be created after approval
+   - Return to Claude Desktop - the file should now be created
+   - Claude should confirm the file was created successfully
 
-5. **Verify the file was created**:
-   - Ask to "read the file ~/mcp-test-workspace/test.txt"
-   - Or use tool: `read_text_file` with path `~/mcp-test-workspace/test.txt`
-   - Should return the file contents **without** requiring approval
-   - Verify the content matches what you wrote
+4. **Verify the file was created**:
+   - In Claude Desktop, type: "Read the file ~/mcp-test-workspace/test.txt"
+   - Claude will use the `read_text_file` tool
+   - Should return the file contents **immediately without** requiring approval
+   - Verify the content matches "Hello, World! This is a test file."
 
-6. **Test file deletion** (should require approval):
-   - Ask to "delete the file ~/mcp-test-workspace/test.txt"
-   - Or use tool: `delete_file` with path `~/mcp-test-workspace/test.txt`
+5. **Test file deletion** (should require approval):
+   - In Claude Desktop, type: "Delete the file ~/mcp-test-workspace/test.txt"
+   - Claude will attempt to use the `delete_file` tool
    - **Check Slack** for another approval request
+   - Review the preview showing the file will be permanently deleted
    - Click **"✅ Approve"** in Slack
-   - File should be deleted after approval
+   - Return to Claude Desktop - the file should be deleted
+   - Claude should confirm the deletion
 
-7. **Verify deletion**:
-   - Try to read the file again - it should not exist
-   - Or list the directory to confirm the file is gone
+6. **Verify deletion**:
+   - In Claude Desktop, type: "List the files in ~/mcp-test-workspace"
+   - The `test.txt` file should no longer appear in the listing
+   - Or try: "Read ~/mcp-test-workspace/test.txt" - it should indicate the file doesn't exist
+
+### What You Should See
+
+**In Claude Desktop:**
+- Non-mutating operations (read, list) work immediately
+- Mutating operations (write, delete) show a message indicating approval is required
+- After approval in Slack, the operation completes
+
+**In Slack:**
+- Approval requests appear as formatted messages with tool details
+- Interactive buttons for Approve/Reject
+- Status updates when actions are processed
 
 ### Using MCP Inspector (Alternative Testing)
 
