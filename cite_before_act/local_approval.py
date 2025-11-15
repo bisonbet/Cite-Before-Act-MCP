@@ -1,8 +1,10 @@
-"""Local approval mechanism using CLI prompts."""
+"""Local approval mechanism using native OS dialogs and file-based approval."""
 
 import asyncio
 import json
 import os
+import platform
+import subprocess
 import sys
 import time
 import uuid
@@ -10,25 +12,18 @@ from typing import Optional
 
 
 class LocalApproval:
-    """Local approval handler using CLI prompts."""
+    """Local approval handler using native OS dialogs and file-based approval."""
 
-    def __init__(self, use_gui: bool = None):
+    def __init__(self, use_native_dialog: bool = True, use_file_based: bool = True):
         """Initialize local approval handler.
 
         Args:
-            use_gui: If True, try to use GUI dialogs (requires tkinter).
-                    If None, auto-detect (GUI only if DISPLAY is set and not in stdio).
-                    If False, use file-based approval.
+            use_native_dialog: If True, try to use native OS dialogs (macOS/Windows)
+            use_file_based: If True, always show file-based approval instructions (works on all platforms)
         """
-        if use_gui is None:
-            # Auto-detect: GUI only works if:
-            # 1. DISPLAY environment variable is set (X11/wayland) OR we're on macOS with GUI
-            # 2. Not running in a headless environment
-            # 3. For stdio MCP servers, NEVER use GUI (causes thread issues)
-            # Since we're in a stdio MCP server, always default to file-based
-            self.use_gui = False
-        else:
-            self.use_gui = use_gui
+        self.use_native_dialog = use_native_dialog
+        self.use_file_based = use_file_based
+        self.platform = platform.system()
 
     async def request_approval(
         self,
@@ -36,7 +31,12 @@ class LocalApproval:
         description: str,
         arguments: dict,
     ) -> bool:
-        """Request approval via local prompt.
+        """Request approval via multiple methods simultaneously.
+
+        This method triggers:
+        - Native OS dialog (macOS/Windows) if enabled
+        - File-based approval (always enabled, works on all platforms)
+        - All methods write to the same approval file, so any one can approve
 
         Args:
             tool_name: Name of the tool
@@ -46,48 +46,41 @@ class LocalApproval:
         Returns:
             True if approved, False if rejected
         """
-        if self.use_gui:
-            # Only try GUI if explicitly enabled
-            # Note: GUI will likely fail in stdio MCP environments due to thread restrictions
-            try:
-                return await self._gui_approval(tool_name, description, arguments)
-            except Exception as e:
-                # GUI failed (likely headless/stdio environment), fall back to file-based
-                print(f"GUI approval failed ({e}), falling back to file-based approval", file=sys.stderr, flush=True)
-                # Disable GUI for future attempts
-                self.use_gui = False
-                return await self._cli_approval(tool_name, description, arguments)
-        else:
-            # Use file-based approval (safe for stdio MCP)
-            return await self._cli_approval(tool_name, description, arguments)
+        approval_id = str(uuid.uuid4())
+        approval_file = f"/tmp/cite-before-act-approval-{approval_id}.json"
+        
+        # Always set up file-based approval (works on all platforms)
+        # This also serves as the shared state for all approval methods
+        asyncio.create_task(self._setup_file_based_approval(
+            approval_id, approval_file, tool_name, description, arguments
+        ))
+        
+        # Try native dialog in parallel (macOS/Windows)
+        if self.use_native_dialog:
+            asyncio.create_task(self._try_native_dialog(
+                approval_file, tool_name, description, arguments
+            ))
+        
+        # Poll for approval response (from any method)
+        return await self._wait_for_approval_response(approval_file, approval_id)
 
-    async def _cli_approval(
+    async def _setup_file_based_approval(
         self,
+        approval_id: str,
+        approval_file: str,
         tool_name: str,
         description: str,
         arguments: dict,
-    ) -> bool:
-        """Request approval via CLI prompt.
-
-        Note: For stdio MCP servers, stdin is used for protocol, so we use GUI instead.
-
+    ) -> None:
+        """Set up file-based approval and print instructions to logs.
+        
         Args:
+            approval_id: Unique approval ID
+            approval_file: Path to approval file
             tool_name: Name of the tool
             description: Description of the action
             arguments: Arguments that would be passed
-
-        Returns:
-            True if approved, False if rejected
         """
-        # For stdio MCP, we can't read from stdin, so use file-based approval
-        # This writes approval requests to /tmp and waits for user response
-        import json
-        import time
-        import uuid
-
-        approval_id = str(uuid.uuid4())
-        approval_file = f"/tmp/cite-before-act-approval-{approval_id}.json"
-
         # Write approval request info to file (for user reference)
         request_data = {
             "approval_id": approval_id,
@@ -109,16 +102,183 @@ class LocalApproval:
         print(f"\nArguments:", file=sys.stderr, flush=True)
         print(json.dumps(arguments, indent=2), file=sys.stderr, flush=True)
         print("=" * 70, file=sys.stderr, flush=True)
-        print(f"\n📝 Approval file: {approval_file}", file=sys.stderr, flush=True)
-        print(f"To approve, run:", file=sys.stderr, flush=True)
+        print(f"\n📝 To approve via file (works on all platforms):", file=sys.stderr, flush=True)
         print(f'  echo "approved" > {approval_file}', file=sys.stderr, flush=True)
-        print(f"To reject, run:", file=sys.stderr, flush=True)
+        print(f"📝 To reject via file:", file=sys.stderr, flush=True)
         print(f'  echo "rejected" > {approval_file}', file=sys.stderr, flush=True)
-        print(f"\n⏳ Waiting for approval (check Claude Desktop logs for this message)...", file=sys.stderr, flush=True)
-
-        # Poll the file for response (with timeout)
+        print(f"\n⏳ Waiting for approval...", file=sys.stderr, flush=True)
+    
+    async def _try_native_dialog(
+        self,
+        approval_file: str,
+        tool_name: str,
+        description: str,
+        arguments: dict,
+    ) -> None:
+        """Try to show native OS dialog (macOS/Windows).
+        
+        This runs in the background and writes to the approval file when user responds.
+        
+        Args:
+            approval_file: Path to approval file
+            tool_name: Name of the tool
+            description: Description of the action
+            arguments: Arguments that would be passed
+        """
+        if self.platform == "Darwin":  # macOS
+            await self._macos_dialog(approval_file, tool_name, description, arguments)
+        elif self.platform == "Windows":
+            await self._windows_dialog(approval_file, tool_name, description, arguments)
+        # Linux: no native dialog, use file-based only
+    
+    async def _macos_dialog(
+        self,
+        approval_file: str,
+        tool_name: str,
+        description: str,
+        arguments: dict,
+    ) -> None:
+        """Show native macOS dialog using osascript.
+        
+        Args:
+            approval_file: Path to approval file
+            tool_name: Name of the tool
+            description: Description of the action
+            arguments: Arguments that would be passed
+        """
+        try:
+            # Format message for dialog
+            args_text = json.dumps(arguments, indent=2)
+            message = f"Tool: {tool_name}\n\nDescription:\n{description}\n\nArguments:\n{args_text}"
+            
+            # Use a more robust approach: write message to temp file and read it
+            # This avoids escaping issues with complex messages
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
+                f.write(message)
+                temp_msg_file = f.name
+            
+            # Create AppleScript to show dialog
+            script = f'''
+            set msgFile to open for access file POSIX file "{temp_msg_file}"
+            set msgContent to read msgFile
+            close access msgFile
+            
+            tell application "System Events"
+                activate
+                set response to display dialog msgContent buttons {{"Reject", "Approve"}} default button "Approve" with title "🔒 Approval Required" with icon caution
+                set buttonPressed to button returned of response
+                if buttonPressed is "Approve" then
+                    do shell script "echo approved > {approval_file}"
+                else
+                    do shell script "echo rejected > {approval_file}"
+                end if
+            end tell
+            
+            do shell script "rm {temp_msg_file}"
+            '''
+            
+            # Run in executor to avoid blocking
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    ["osascript", "-e", script],
+                    capture_output=True,
+                    timeout=300,  # 5 minute timeout
+                )
+            )
+        except subprocess.TimeoutExpired:
+            # Dialog timed out - user didn't respond
+            pass
+        except Exception as e:
+            # Dialog failed - file-based approval will still work
+            print(f"Native macOS dialog failed: {e}", file=sys.stderr, flush=True)
+    
+    async def _windows_dialog(
+        self,
+        approval_file: str,
+        tool_name: str,
+        description: str,
+        arguments: dict,
+    ) -> None:
+        """Show native Windows dialog using PowerShell.
+        
+        Args:
+            approval_file: Path to approval file
+            tool_name: Name of the tool
+            description: Description of the action
+            arguments: Arguments that would be passed
+        """
+        try:
+            # Format message for dialog
+            args_text = json.dumps(arguments, indent=2)
+            message = f"Tool: {tool_name}\n\nDescription:\n{description}\n\nArguments:\n{args_text}"
+            
+            # Use a more robust approach: write message to temp file and read it
+            # This avoids escaping issues with complex messages
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
+                f.write(message)
+                temp_msg_file = f.name
+            
+            # Note: Windows uses different path format
+            win_approval_file = approval_file.replace('/', '\\')
+            win_temp_file = temp_msg_file.replace('/', '\\')
+            
+            # Create PowerShell script to show dialog
+            script = f'''
+            $message = Get-Content -Path "{win_temp_file}" -Raw
+            Add-Type -AssemblyName System.Windows.Forms
+            $result = [System.Windows.Forms.MessageBox]::Show(
+                $message,
+                "🔒 Approval Required",
+                [System.Windows.Forms.MessageBoxButtons]::YesNo,
+                [System.Windows.Forms.MessageBoxIcon]::Warning
+            )
+            if ($result -eq "Yes") {{
+                "approved" | Out-File -FilePath "{win_approval_file}" -Encoding utf8
+            }} else {{
+                "rejected" | Out-File -FilePath "{win_approval_file}" -Encoding utf8
+            }}
+            Remove-Item -Path "{win_temp_file}" -Force
+            '''
+            
+            # Run in executor to avoid blocking
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    ["powershell", "-Command", script],
+                    capture_output=True,
+                    timeout=300,  # 5 minute timeout
+                )
+            )
+        except subprocess.TimeoutExpired:
+            # Dialog timed out - user didn't respond
+            pass
+        except Exception as e:
+            # Dialog failed - file-based approval will still work
+            print(f"Native Windows dialog failed: {e}", file=sys.stderr, flush=True)
+    
+    async def _wait_for_approval_response(
+        self,
+        approval_file: str,
+        approval_id: str,
+    ) -> bool:
+        """Wait for approval response from any method (native dialog or file).
+        
+        Args:
+            approval_file: Path to approval file
+            approval_id: Unique approval ID
+            
+        Returns:
+            True if approved, False if rejected or timed out
+        """
+        info_file = f"{approval_file}.info"
         timeout = 300  # 5 minutes
         start_time = time.time()
+        
         while time.time() - start_time < timeout:
             try:
                 if os.path.exists(approval_file):
@@ -154,142 +314,4 @@ class LocalApproval:
             pass
         print("⏱️  Approval timeout - rejected", file=sys.stderr, flush=True)
         return False
-
-    async def _gui_approval(
-        self,
-        tool_name: str,
-        description: str,
-        arguments: dict,
-    ) -> bool:
-        """Request approval via GUI dialog.
-
-        Args:
-            tool_name: Name of the tool
-            description: Description of the action
-            arguments: Arguments that would be passed
-
-        Returns:
-            True if approved, False if rejected
-        """
-        try:
-            import tkinter as tk
-            from tkinter import messagebox, scrolledtext
-        except ImportError:
-            # Fall back to file-based if tkinter not available
-            return await self._cli_approval(tool_name, description, arguments)
-
-        import json
-
-        # Create a dialog with more details
-        result = [None]  # Use list to modify from nested function
-
-        def show_dialog():
-            root = tk.Tk()
-            root.title("🔒 Approval Required")
-            root.geometry("600x500")
-            
-            # Create main frame
-            frame = tk.Frame(root, padx=20, pady=20)
-            frame.pack(fill=tk.BOTH, expand=True)
-            
-            # Tool name
-            tool_label = tk.Label(
-                frame,
-                text=f"Tool: {tool_name}",
-                font=("Arial", 14, "bold"),
-            )
-            tool_label.pack(anchor=tk.W, pady=(0, 10))
-            
-            # Description
-            desc_label = tk.Label(
-                frame,
-                text="Description:",
-                font=("Arial", 10, "bold"),
-            )
-            desc_label.pack(anchor=tk.W, pady=(10, 5))
-            
-            desc_text = tk.Text(
-                frame,
-                height=3,
-                wrap=tk.WORD,
-                font=("Arial", 10),
-            )
-            desc_text.insert("1.0", description)
-            desc_text.config(state=tk.DISABLED)
-            desc_text.pack(fill=tk.X, pady=(0, 10))
-            
-            # Arguments
-            args_label = tk.Label(
-                frame,
-                text="Arguments:",
-                font=("Arial", 10, "bold"),
-            )
-            args_label.pack(anchor=tk.W, pady=(10, 5))
-            
-            args_text = scrolledtext.ScrolledText(
-                frame,
-                height=8,
-                wrap=tk.WORD,
-                font=("Courier", 9),
-            )
-            args_text.insert("1.0", json.dumps(arguments, indent=2))
-            args_text.config(state=tk.DISABLED)
-            args_text.pack(fill=tk.BOTH, expand=True, pady=(0, 20))
-            
-            # Buttons
-            button_frame = tk.Frame(frame)
-            button_frame.pack(fill=tk.X)
-            
-            def approve():
-                result[0] = True
-                root.destroy()
-            
-            def reject():
-                result[0] = False
-                root.destroy()
-            
-            approve_btn = tk.Button(
-                button_frame,
-                text="✅ Approve",
-                command=approve,
-                bg="#4CAF50",
-                fg="white",
-                font=("Arial", 12, "bold"),
-                padx=20,
-                pady=10,
-            )
-            approve_btn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 10))
-            
-            reject_btn = tk.Button(
-                button_frame,
-                text="❌ Reject",
-                command=reject,
-                bg="#f44336",
-                fg="white",
-                font=("Arial", 12, "bold"),
-                padx=20,
-                pady=10,
-            )
-            reject_btn.pack(side=tk.LEFT, expand=True, fill=tk.X)
-            
-            # Make window appear on top
-            root.lift()
-            root.attributes("-topmost", True)
-            root.focus_force()
-            
-            # Center window
-            root.update_idletasks()
-            width = root.winfo_width()
-            height = root.winfo_height()
-            x = (root.winfo_screenwidth() // 2) - (width // 2)
-            y = (root.winfo_screenheight() // 2) - (height // 2)
-            root.geometry(f"{width}x{height}+{x}+{y}")
-            
-            root.mainloop()
-
-        # Run in executor to avoid blocking
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, show_dialog)
-
-        return result[0] if result[0] is not None else False
 

@@ -72,23 +72,22 @@ class ProxyServer:
                 slack_configured = False
 
         # Local approval configuration
-        # Priority: Always enable local approval if:
-        #   1. Explicitly enabled via USE_LOCAL_APPROVAL=true (default)
-        #   2. Slack is not configured or disabled
-        # This ensures local approval is always available as primary or fallback
+        # Enable local approval to work in parallel with Slack
+        # This provides multiple approval methods simultaneously:
+        # - Slack notifications (if configured)
+        # - Native OS dialogs (macOS/Windows) - uses osascript/PowerShell
+        # - File-based approval (all platforms) - always shown in logs
         local_approval = None
         should_use_local = self.settings.use_local_approval or not slack_configured
         if should_use_local:
-            # For stdio MCP servers (like Claude Desktop), ALWAYS use file-based approval
-            # GUI causes crashes on macOS when run from background threads (stdio MCP)
-            # Even if USE_GUI_APPROVAL=true is set, we force file-based for stdio transport
-            use_gui_env = os.getenv("USE_GUI_APPROVAL", "").lower()
-            if use_gui_env == "true":
-                # User requested GUI, but we're in stdio mode - warn and use file-based
-                print("Warning: USE_GUI_APPROVAL=true is not supported in stdio MCP mode (Claude Desktop).", file=sys.stderr, flush=True)
-                print("Using file-based approval instead. Check logs for approval file path.", file=sys.stderr, flush=True)
-            # Always use file-based for stdio MCP (safe and reliable)
-            local_approval = LocalApproval(use_gui=False)
+            # Use native dialogs on macOS/Windows, file-based on Linux
+            # Native dialogs use osascript (macOS) or PowerShell (Windows)
+            # These work even in stdio MCP mode because they run as separate processes
+            use_native = os.getenv("USE_NATIVE_DIALOG", "true").lower() == "true"
+            local_approval = LocalApproval(
+                use_native_dialog=use_native,
+                use_file_based=True,  # Always show file-based instructions in logs
+            )
 
         # Approval manager
         approval_manager = ApprovalManager(
