@@ -6,7 +6,7 @@ import os
 import subprocess
 import sys
 import types
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from fastmcp import FastMCP
 
@@ -270,6 +270,7 @@ class ProxyServer:
             # Get the input schema to understand the parameters
             input_schema = tool_info.get("inputSchema", {})
             properties = input_schema.get("properties", {})
+            required_params = set(input_schema.get("required", []))
             param_names = list(properties.keys())
             
             # Capture variables in closure (before creating function)
@@ -281,12 +282,40 @@ class ProxyServer:
             
             # Create a function with explicit parameters
             # FastMCP requires explicit parameters, not **kwargs
+            # Make optional parameters have default values of None
             if param_names:
-                # Build function signature with all parameters
-                params_str = ", ".join(param_names)
+                # Build function signature with optional parameters having defaults
+                param_defs = []
+                for param_name in param_names:
+                    prop = properties.get(param_name, {})
+                    param_type = prop.get("type", "string")
+                    # Map JSON schema types to Python types
+                    if param_type == "integer" or param_type == "number":
+                        type_hint = "int" if param_type == "integer" else "float"
+                    elif param_type == "boolean":
+                        type_hint = "bool"
+                    elif param_type == "array":
+                        type_hint = "list"
+                    elif param_type == "object":
+                        type_hint = "dict"
+                    else:
+                        type_hint = "str"
+                    
+                    # Make parameter optional if not in required list
+                    if param_name not in required_params:
+                        param_defs.append(f"{param_name}: Optional[{type_hint}] = None")
+                    else:
+                        param_defs.append(f"{param_name}: {type_hint}")
+                
+                params_str = ", ".join(param_defs)
                 # Build code to collect parameters into dict
-                collect_parts = [f"'{p}': {p}" for p in param_names]
-                collect_code = "arguments = {" + ", ".join(collect_parts) + "}"
+                # Start with required parameters
+                required_parts = [f"'{p}': {p}" for p in param_names if p in required_params]
+                collect_code = "arguments = {" + ", ".join(required_parts) + "}\n"
+                # Add optional parameters only if they're not None
+                for p in param_names:
+                    if p not in required_params:
+                        collect_code += f"    if {p} is not None:\n        arguments['{p}'] = {p}\n"
             else:
                 params_str = ""
                 collect_code = "arguments = {}"
@@ -329,6 +358,7 @@ class ProxyServer:
                 # When exec creates a function, it looks in globals for free variables
                 globals_dict = {
                     "asyncio": asyncio,
+                    "Optional": Optional,
                     "middleware_inner": middleware_inner,
                     "tools_dict": tools_dict,
                     "tool_name_inner": tool_name_inner,
