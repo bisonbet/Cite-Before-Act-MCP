@@ -79,7 +79,11 @@ class ProxyServer:
         local_approval = None
         should_use_local = self.settings.use_local_approval or not slack_configured
         if should_use_local:
-            local_approval = LocalApproval(use_gui=self.settings.use_gui_approval)
+            # For stdio MCP servers (like Claude Desktop), default to file-based approval
+            # GUI can cause issues in headless/background thread environments
+            # Only use GUI if explicitly requested AND we have a display
+            use_gui = self.settings.use_gui_approval if self.settings.use_gui_approval else None
+            local_approval = LocalApproval(use_gui=use_gui)
 
         # Approval manager
         approval_manager = ApprovalManager(

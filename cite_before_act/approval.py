@@ -183,8 +183,9 @@ class ApprovalManager:
         if not slack_sent and self.use_local_fallback:
             if not self.local_approval:
                 # Create local approval handler if not provided
-                # Default to file-based for headless environments (Claude Desktop stdio)
-                use_gui = os.getenv("USE_GUI_APPROVAL", "false").lower() == "true"
+                # Default to None (auto-detect) which will use file-based for stdio MCP
+                use_gui_str = os.getenv("USE_GUI_APPROVAL", "").lower()
+                use_gui = None if not use_gui_str else (use_gui_str == "true")
                 self.local_approval = LocalApproval(use_gui=use_gui)
             
             # Request local approval asynchronously

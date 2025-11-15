@@ -12,13 +12,24 @@ from typing import Optional
 class LocalApproval:
     """Local approval handler using CLI prompts."""
 
-    def __init__(self, use_gui: bool = True):
+    def __init__(self, use_gui: bool = None):
         """Initialize local approval handler.
 
         Args:
-            use_gui: If True, try to use GUI dialogs (requires tkinter). Default True for stdio MCP.
+            use_gui: If True, try to use GUI dialogs (requires tkinter).
+                    If None, auto-detect (GUI only if DISPLAY is set and not in stdio).
+                    If False, use file-based approval.
         """
-        self.use_gui = use_gui
+        if use_gui is None:
+            # Auto-detect: GUI only works if:
+            # 1. DISPLAY environment variable is set (X11/wayland)
+            # 2. Not running in a headless environment
+            # 3. For stdio MCP servers, default to file-based (safer)
+            has_display = os.getenv("DISPLAY") is not None
+            # Default to file-based for safety (especially in stdio MCP environments)
+            self.use_gui = False
+        else:
+            self.use_gui = use_gui
 
     async def request_approval(
         self,

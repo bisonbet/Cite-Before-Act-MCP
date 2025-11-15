@@ -130,12 +130,18 @@ class SlackClient:
             )
             return response["ts"]
         except SlackApiError as e:
-            error_msg = f"Failed to send approval request: {e.response.get('error', str(e))}"
-            print(f"Slack API Error: {error_msg}", file=sys.stderr)
-            raise SlackApiError(error_msg) from e
+            # Extract error message safely
+            if hasattr(e, 'response') and isinstance(e.response, dict):
+                error_msg = e.response.get('error', str(e))
+            else:
+                error_msg = str(e)
+            print(f"Slack API Error: Failed to send approval request: {error_msg}", file=sys.stderr)
+            # Re-raise to trigger fallback to local approval
+            raise
         except Exception as e:
             error_msg = f"Unexpected error sending Slack message: {e}"
             print(f"Slack Error: {error_msg}", file=sys.stderr)
+            # Re-raise to trigger fallback to local approval
             raise
 
     def update_message(
