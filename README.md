@@ -63,7 +63,7 @@ Run the interactive setup wizard to configure everything automatically:
 ```bash
 git clone https://github.com/bisonbet/Cite-Before-Act-MCP.git
 cd Cite-Before-Act-MCP
-python3 setup.py
+python3 setup_wizard.py
 ```
 
 The setup wizard will:
