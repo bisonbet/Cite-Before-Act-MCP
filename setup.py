@@ -275,8 +275,68 @@ def install_dependencies(venv_dir: Path, project_dir: Path) -> None:
     """Install project dependencies."""
     python_exe = get_venv_python(venv_dir)
 
+    # Clean up any existing build artifacts to avoid conflicts
+    # This is especially important when switching Python versions
+    import shutil
+    cleaned = []
+    
+    # Clean up .egg-info and .dist-info directories (recursively)
+    # Track what we've cleaned to avoid duplicates
+    cleaned_paths = set()
+    
+    for pattern in ['*.egg-info', '*.dist-info']:
+        for item in project_dir.rglob(pattern):
+            if item.is_dir() and item not in cleaned_paths:
+                rel_path = item.relative_to(project_dir)
+                print(f"Removing existing build artifact: {rel_path}")
+                try:
+                    shutil.rmtree(item, ignore_errors=True)
+                    # Verify it's actually gone
+                    if item.exists():
+                        print_warning(f"Could not fully remove {rel_path}, trying again...")
+                        import time
+                        time.sleep(0.1)  # Brief pause
+                        shutil.rmtree(item, ignore_errors=True)
+                    cleaned.append(str(rel_path))
+                    cleaned_paths.add(item)
+                except Exception as e:
+                    print_warning(f"Error removing {rel_path}: {e}")
+    
+    # Also clean up build/ and dist/ directories if they exist
+    for dir_name in ['build', 'dist']:
+        dir_path = project_dir / dir_name
+        if dir_path.exists() and dir_path.is_dir():
+            print(f"Removing existing build directory: {dir_name}")
+            try:
+                shutil.rmtree(dir_path, ignore_errors=True)
+                cleaned.append(dir_name)
+            except Exception as e:
+                print_warning(f"Error removing {dir_name}: {e}")
+    
+    if cleaned:
+        print_success(f"Cleaned up {len(cleaned)} build artifact(s)")
+    else:
+        print("No existing build artifacts found")
+
     print("Installing project dependencies...")
     run_command([str(python_exe), "-m", "pip", "install", "--upgrade", "pip"])
+    
+    # Try to uninstall any existing installation first (ignore errors if not installed)
+    # This helps when switching Python versions
+    print("Checking for existing package installation...")
+    uninstall_result = run_command(
+        [str(python_exe), "-m", "pip", "uninstall", "-y", "cite-before-act-mcp"],
+        check=False
+    )
+    if uninstall_result.returncode == 0:
+        print_success("Removed existing package installation")
+    
+    # Final cleanup pass right before install (in case anything was created)
+    for item in list(project_dir.rglob('*.egg-info')):
+        if item.is_dir() and item.exists():
+            print(f"Final cleanup: removing {item.relative_to(project_dir)}")
+            shutil.rmtree(item, ignore_errors=True)
+    
     run_command([str(python_exe), "-m", "pip", "install", "-e", "."], cwd=project_dir)
 
     print_success("Dependencies installed")
@@ -734,6 +794,16 @@ def main():
     python_exe = select_python_version()
     if not python_exe:
         return 1
+
+    # Warn if running with a different Python version than selected
+    current_python = sys.executable
+    if current_python != python_exe:
+        current_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+        print_warning(f"Script is running with Python {current_version} ({current_python})")
+        print_warning(f"But will create venv with: {python_exe}")
+        print_warning("This is usually fine, but if you encounter issues, try running the script")
+        print_warning(f"with the selected Python: {python_exe} setup.py")
+        print()
 
     print()
     has_node = check_node_installed()
