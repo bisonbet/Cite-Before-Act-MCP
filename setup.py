@@ -98,14 +98,113 @@ def run_command(cmd: list, cwd: Optional[Path] = None, check: bool = True) -> su
         raise
 
 
-def check_python_version() -> bool:
-    """Check if Python version is 3.10+."""
-    version = sys.version_info
-    if version.major < 3 or (version.major == 3 and version.minor < 10):
-        print_error(f"Python 3.10+ required, but found {version.major}.{version.minor}")
-        return False
-    print_success(f"Python {version.major}.{version.minor}.{version.micro} detected")
-    return True
+def find_python_installations() -> list[tuple[str, tuple[int, int, int]]]:
+    """Find all available Python installations in PATH.
+
+    Returns:
+        List of tuples (python_path, (major, minor, micro))
+    """
+    python_versions = []
+
+    # Common Python executable names to check
+    python_names = [
+        "python3.13", "python3.12", "python3.11", "python3.10",
+        "python3", "python"
+    ]
+
+    checked_paths = set()  # Avoid duplicates
+
+    for name in python_names:
+        try:
+            # Use 'which' to find the executable
+            result = run_command(["which", name], check=False)
+            if result.returncode == 0:
+                python_path = result.stdout.strip()
+
+                # Skip if we've already checked this path (symlinks)
+                if python_path in checked_paths:
+                    continue
+                checked_paths.add(python_path)
+
+                # Get version
+                version_result = run_command([python_path, "--version"], check=False)
+                if version_result.returncode == 0:
+                    # Parse version string like "Python 3.12.0"
+                    version_str = version_result.stdout.strip()
+                    if version_str.startswith("Python "):
+                        version_parts = version_str.split()[1].split(".")
+                        if len(version_parts) >= 2:
+                            major = int(version_parts[0])
+                            minor = int(version_parts[1])
+                            micro = int(version_parts[2]) if len(version_parts) > 2 else 0
+
+                            # Only include Python 3.10+
+                            if major >= 3 and minor >= 10:
+                                python_versions.append((python_path, (major, minor, micro)))
+        except Exception:
+            continue
+
+    # Sort by version (newest first)
+    python_versions.sort(key=lambda x: x[1], reverse=True)
+
+    return python_versions
+
+
+def select_python_version() -> Optional[str]:
+    """Let user select which Python version to use.
+
+    Returns:
+        Path to selected Python executable, or None if none available
+    """
+    pythons = find_python_installations()
+
+    if not pythons:
+        print_error("No Python 3.10+ installations found in PATH")
+        print("\nSearched for: python3.13, python3.12, python3.11, python3.10, python3, python")
+        print("Please install Python 3.10 or higher from: https://www.python.org/downloads/")
+        return None
+
+    # If running script with current Python and it's valid, prefer that
+    current_python = sys.executable
+    current_version = sys.version_info
+    if current_version.major >= 3 and current_version.minor >= 10:
+        # Check if current python is in our list
+        for path, version in pythons:
+            if path == current_python:
+                print_success(f"Using current Python: {path} (v{version[0]}.{version[1]}.{version[2]})")
+                return path
+
+    # Show available options
+    print(f"\n{Colors.CYAN}Available Python installations:{Colors.END}")
+    for i, (path, version) in enumerate(pythons, 1):
+        print(f"  {i}. Python {version[0]}.{version[1]}.{version[2]} - {path}")
+
+    # Let user choose
+    if len(pythons) == 1:
+        if prompt_yes_no(f"\nUse Python {pythons[0][1][0]}.{pythons[0][1][1]}.{pythons[0][1][2]}?", default=True):
+            selected = pythons[0][0]
+            print_success(f"Selected: {selected}")
+            return selected
+        else:
+            print_error("Setup cancelled - no Python version selected")
+            return None
+    else:
+        default_choice = "1"
+        choice = prompt(f"\nSelect Python version (1-{len(pythons)})", default_choice)
+
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(pythons):
+                selected = pythons[idx][0]
+                version = pythons[idx][1]
+                print_success(f"Selected: Python {version[0]}.{version[1]}.{version[2]} - {selected}")
+                return selected
+            else:
+                print_error(f"Invalid choice: {choice}")
+                return None
+        except ValueError:
+            print_error(f"Invalid choice: {choice}")
+            return None
 
 
 def check_node_installed() -> bool:
@@ -138,8 +237,16 @@ def check_ngrok_installed() -> bool:
     return False
 
 
-def create_venv(project_dir: Path) -> Path:
-    """Create virtual environment."""
+def create_venv(project_dir: Path, python_exe: str) -> Path:
+    """Create virtual environment.
+
+    Args:
+        project_dir: Project directory
+        python_exe: Path to Python executable to use
+
+    Returns:
+        Path to venv directory
+    """
     venv_dir = project_dir / ".venv"
 
     if venv_dir.exists():
@@ -150,8 +257,8 @@ def create_venv(project_dir: Path) -> Path:
             print_success(f"Using existing virtual environment: {venv_dir}")
             return venv_dir
 
-    print("Creating virtual environment...")
-    run_command([sys.executable, "-m", "venv", str(venv_dir)])
+    print(f"Creating virtual environment with {python_exe}...")
+    run_command([python_exe, "-m", "venv", str(venv_dir)])
     print_success(f"Virtual environment created: {venv_dir}")
     return venv_dir
 
@@ -621,11 +728,14 @@ def main():
     # Get project directory
     project_dir = Path(__file__).parent.resolve()
 
-    # Step 1: Check prerequisites
-    print_step(1, 7, "Checking Prerequisites")
-    if not check_python_version():
+    # Step 1: Check prerequisites and select Python
+    print_step(1, 7, "Selecting Python Version")
+
+    python_exe = select_python_version()
+    if not python_exe:
         return 1
 
+    print()
     has_node = check_node_installed()
     if not has_node:
         print_warning("Node.js is recommended for upstream MCP servers")
@@ -635,7 +745,7 @@ def main():
 
     # Step 2: Create virtual environment
     print_step(2, 7, "Creating Virtual Environment")
-    venv_dir = create_venv(project_dir)
+    venv_dir = create_venv(project_dir, python_exe)
 
     # Step 3: Install dependencies
     print_step(3, 7, "Installing Dependencies")
