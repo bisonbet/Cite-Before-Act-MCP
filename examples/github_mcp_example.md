@@ -36,7 +36,7 @@ Copy [`claude_desktop_config.github.example.json`](../claude_desktop_config.gith
       "args": ["-m", "server.main", "--transport", "stdio"],
       "env": {
         "UPSTREAM_COMMAND": "github-mcp-server",
-        "UPSTREAM_ARGS": "",
+        "UPSTREAM_ARGS": "stdio",
         "UPSTREAM_TRANSPORT": "stdio",
         "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_your_token_here",
         "DETECTION_ENABLE_CONVENTION": "true",
@@ -61,7 +61,7 @@ Alternatively, you can use a `.env` file:
 ```bash
 # GitHub MCP Server Configuration
 UPSTREAM_COMMAND=github-mcp-server
-UPSTREAM_ARGS=
+UPSTREAM_ARGS=stdio
 UPSTREAM_TRANSPORT=stdio
 GITHUB_PERSONAL_ACCESS_TOKEN=ghp_your_token_here
 
@@ -154,7 +154,7 @@ If you prefer to use the GitHub MCP Server via Docker:
       "args": ["-m", "server.main", "--transport", "stdio"],
       "env": {
         "UPSTREAM_COMMAND": "docker",
-        "UPSTREAM_ARGS": "run,-i,--rm,-e,GITHUB_PERSONAL_ACCESS_TOKEN=ghp_your_token_here,ghcr.io/github/github-mcp-server",
+        "UPSTREAM_ARGS": "run,-i,--rm,-e,GITHUB_PERSONAL_ACCESS_TOKEN=ghp_your_token_here,ghcr.io/github/github-mcp-server,stdio",
         "UPSTREAM_TRANSPORT": "stdio",
         "DETECTION_ENABLE_CONVENTION": "true",
         "DETECTION_ENABLE_METADATA": "true",
@@ -170,7 +170,7 @@ If you prefer to use the GitHub MCP Server via Docker:
 The GitHub MCP Server supports a `--read-only` flag. If you want to use read-only mode while still having the proxy for future mutating operations:
 
 ```json
-"UPSTREAM_ARGS": "--read-only"
+"UPSTREAM_ARGS": "stdio,--read-only"
 ```
 
 ## Advanced Configuration
@@ -180,7 +180,7 @@ The GitHub MCP Server supports a `--read-only` flag. If you want to use read-onl
 GitHub MCP Server supports `--lockdown-mode` which limits content from public repositories. To use it:
 
 ```json
-"UPSTREAM_ARGS": "--lockdown-mode"
+"UPSTREAM_ARGS": "stdio,--lockdown-mode"
 ```
 
 ### Dynamic Tool Discovery
@@ -188,7 +188,7 @@ GitHub MCP Server supports `--lockdown-mode` which limits content from public re
 GitHub MCP Server supports `--dynamic-toolsets` for dynamic tool discovery:
 
 ```json
-"UPSTREAM_ARGS": "--dynamic-toolsets"
+"UPSTREAM_ARGS": "stdio,--dynamic-toolsets"
 ```
 
 ## Testing
