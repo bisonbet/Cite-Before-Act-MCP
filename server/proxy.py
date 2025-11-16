@@ -8,6 +8,7 @@ import sys
 import types
 from typing import Any, Dict, Optional, Union
 
+import httpx
 from fastmcp import FastMCP
 
 from cite_before_act.approval import ApprovalManager
@@ -34,6 +35,7 @@ class ProxyServer:
         self.mcp: Optional[FastMCP] = None
         self.middleware: Optional[Middleware] = None
         self.upstream_process: Optional[subprocess.Popen] = None
+        self.upstream_http_client: Optional[httpx.AsyncClient] = None
         self.upstream_tools: Dict[str, Dict[str, Any]] = {}
         self._request_id = 3  # Start after init and list_tools
 
@@ -236,9 +238,83 @@ class ProxyServer:
                         }
 
         elif upstream_config.transport in ("http", "sse") and upstream_config.url:
-            # For HTTP/SSE, we'd use a different client setup
-            # This is a placeholder for future implementation
-            raise NotImplementedError("HTTP/SSE transport not yet implemented")
+            # HTTP/SSE transport for remote MCP servers
+            # Build headers for HTTP client
+            headers = {
+                "Content-Type": "application/json",
+                **upstream_config.headers,  # Add custom headers (e.g., Authorization)
+            }
+            
+            # Create async HTTP client
+            self.upstream_http_client = httpx.AsyncClient(
+                base_url=upstream_config.url,
+                headers=headers,
+                timeout=30.0,
+            )
+            
+            # Initialize MCP connection
+            init_request = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "cite-before-act-proxy", "version": "0.1.0"},
+                },
+            }
+            
+            # Send initialize request
+            try:
+                response = await self.upstream_http_client.post(
+                    "",  # Use base_url, so empty path
+                    json=init_request,
+                )
+                response.raise_for_status()
+                init_response = response.json()
+            except httpx.HTTPError as e:
+                raise RuntimeError(f"Failed to connect to upstream server: {e}")
+            except json.JSONDecodeError as e:
+                raise RuntimeError(f"Invalid response from upstream server: {e}")
+            
+            if "error" in init_response:
+                raise RuntimeError(f"Upstream server initialization failed: {init_response['error']}")
+            
+            # Send initialized notification
+            initialized_notification = {
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized",
+            }
+            try:
+                await self.upstream_http_client.post("", json=initialized_notification)
+            except httpx.HTTPError:
+                # Notification failures are non-fatal
+                pass
+            
+            # List tools from upstream server
+            list_tools_request = {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/list",
+                "params": {},
+            }
+            
+            try:
+                response = await self.upstream_http_client.post("", json=list_tools_request)
+                response.raise_for_status()
+                tools_response = response.json()
+            except httpx.HTTPError as e:
+                raise RuntimeError(f"Failed to list tools from upstream server: {e}")
+            except json.JSONDecodeError as e:
+                raise RuntimeError(f"Invalid response from upstream server: {e}")
+            
+            if "result" in tools_response and "tools" in tools_response["result"]:
+                for tool in tools_response["result"]["tools"]:
+                    self.upstream_tools[tool["name"]] = {
+                        "name": tool["name"],
+                        "description": tool.get("description", ""),
+                        "inputSchema": tool.get("inputSchema", {}),
+                    }
         else:
             raise ValueError("Invalid upstream server configuration")
 
@@ -442,9 +518,6 @@ class ProxyServer:
         Returns:
             Result from upstream tool
         """
-        if not self.upstream_process:
-            raise RuntimeError("Upstream process not available")
-
         # Debug: Log arguments being sent
         debug_log("Calling upstream tool '{}' with arguments: {}", tool_name, arguments)
 
@@ -462,20 +535,34 @@ class ProxyServer:
             },
         }
 
-        # Send request to upstream server
-        request_str = json.dumps(tool_request) + "\n"
-        self.upstream_process.stdin.write(request_str)
-        self.upstream_process.stdin.flush()
+        # Handle different transport types
+        if self.upstream_process:
+            # stdio transport
+            request_str = json.dumps(tool_request) + "\n"
+            self.upstream_process.stdin.write(request_str)
+            self.upstream_process.stdin.flush()
 
-        # Read response asynchronously
-        loop = asyncio.get_event_loop()
-        response_line = await loop.run_in_executor(
-            None, self.upstream_process.stdout.readline
-        )
-        if not response_line:
-            raise RuntimeError("No response from upstream server")
+            # Read response asynchronously
+            loop = asyncio.get_event_loop()
+            response_line = await loop.run_in_executor(
+                None, self.upstream_process.stdout.readline
+            )
+            if not response_line:
+                raise RuntimeError("No response from upstream server")
 
-        response = json.loads(response_line.strip())
+            response = json.loads(response_line.strip())
+        elif self.upstream_http_client:
+            # HTTP/SSE transport
+            try:
+                http_response = await self.upstream_http_client.post("", json=tool_request)
+                http_response.raise_for_status()
+                response = http_response.json()
+            except httpx.HTTPError as e:
+                raise RuntimeError(f"HTTP request to upstream server failed: {e}")
+            except json.JSONDecodeError as e:
+                raise RuntimeError(f"Invalid JSON response from upstream server: {e}")
+        else:
+            raise RuntimeError("Upstream server not available")
 
         # Debug: Log response structure
         debug_log("Upstream tool '{}' response structure: {}", 

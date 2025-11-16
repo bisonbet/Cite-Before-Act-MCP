@@ -1,7 +1,7 @@
 """Configuration management for Cite-Before-Act MCP."""
 
 import os
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
@@ -43,6 +43,7 @@ class UpstreamServerConfig(BaseModel):
     args: List[str] = Field(default_factory=list, description="Arguments for command")
     url: Optional[str] = Field(None, description="URL for upstream server (HTTP/SSE)")
     transport: str = Field("stdio", description="Transport type: stdio, http, or sse")
+    headers: Dict[str, str] = Field(default_factory=dict, description="HTTP headers for remote servers")
 
     @field_validator("transport")
     @classmethod
@@ -103,6 +104,34 @@ class Settings(BaseModel):
         upstream_args = [a.strip() for a in upstream_args_str.split(",") if a.strip()] if upstream_args_str else []
         upstream_url = os.getenv("UPSTREAM_URL")
         upstream_transport = os.getenv("UPSTREAM_TRANSPORT", "stdio")
+        
+        # Parse headers from environment variables
+        # Format: UPSTREAM_HEADERS=Header1:value1,Header2:value2
+        # Or individual: UPSTREAM_HEADER_Authorization=Bearer token
+        upstream_headers: Dict[str, str] = {}
+        upstream_headers_str = os.getenv("UPSTREAM_HEADERS", "")
+        if upstream_headers_str:
+            # Parse comma-separated header:value pairs
+            for header_pair in upstream_headers_str.split(","):
+                if ":" in header_pair:
+                    key, value = header_pair.split(":", 1)
+                    upstream_headers[key.strip()] = value.strip()
+        
+        # Also check for individual header environment variables (UPSTREAM_HEADER_*)
+        for key, value in os.environ.items():
+            if key.startswith("UPSTREAM_HEADER_"):
+                header_name = key[len("UPSTREAM_HEADER_"):]
+                upstream_headers[header_name] = value
+        
+        # Special handling for Authorization header from common env vars
+        # Support both UPSTREAM_HEADER_Authorization and direct token vars
+        auth_token = os.getenv("UPSTREAM_AUTH_TOKEN") or os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+        if auth_token and "Authorization" not in upstream_headers:
+            # Check if token already has "Bearer " prefix
+            if auth_token.startswith("Bearer "):
+                upstream_headers["Authorization"] = auth_token
+            else:
+                upstream_headers["Authorization"] = f"Bearer {auth_token}"
 
         upstream_config = None
         if upstream_command or upstream_url:
@@ -111,6 +140,7 @@ class Settings(BaseModel):
                 args=upstream_args,
                 url=upstream_url,
                 transport=upstream_transport,
+                headers=upstream_headers,
             )
 
         # Approval settings

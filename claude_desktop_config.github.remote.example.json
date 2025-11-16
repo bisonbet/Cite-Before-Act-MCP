@@ -1,0 +1,35 @@
+{
+  "mcpServers": {
+    "cite-before-act-github-remote": {
+      "command": "python",
+      "args": [
+        "-m",
+        "server.main",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "UPSTREAM_URL": "https://api.githubcopilot.com/mcp/",
+        "UPSTREAM_TRANSPORT": "http",
+        "UPSTREAM_HEADER_Authorization": "Bearer ${input:github_mcp_pat}",
+        "DETECTION_ALLOWLIST": "",
+        "DETECTION_BLOCKLIST": "read_file,get_file,list_files,search_code,get_issue,list_issues,get_pull_request,list_pull_requests,search_repositories,get_repository,list_repositories,get_user,list_users,search_users",
+        "DETECTION_ENABLE_CONVENTION": "true",
+        "DETECTION_ENABLE_METADATA": "true",
+        "APPROVAL_TIMEOUT_SECONDS": "300",
+        "USE_LOCAL_APPROVAL": "true",
+        "USE_NATIVE_DIALOG": "true",
+        "ENABLE_SLACK": "false"
+      }
+    }
+  },
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "github_mcp_pat",
+      "description": "GitHub Personal Access Token",
+      "password": true
+    }
+  ]
+}
+
