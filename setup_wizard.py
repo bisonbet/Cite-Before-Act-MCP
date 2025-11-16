@@ -567,9 +567,12 @@ def configure_upstream() -> Dict[str, Any]:
             config = {
                 "url": "https://api.githubcopilot.com/mcp/",
                 "transport": "http",
-                "github_token": token  # This will be saved to .env only
             }
-            
+
+            # Only add token to config if provided (don't add empty string)
+            if token:
+                config["github_token"] = token
+
             return config
         else:
             # Local GitHub MCP server (stdio)
@@ -601,13 +604,13 @@ def configure_upstream() -> Dict[str, Any]:
             print("Required scopes: repo, workflow, write:packages, delete:packages, admin:org, etc.")
             print("Or use minimal scopes needed for your use case")
             token = prompt("GitHub Personal Access Token", "")
-            
+
             if not token:
                 print_warning("No token provided. You'll need to set GITHUB_PERSONAL_ACCESS_TOKEN in your .env file")
 
             # GitHub MCP server requires 'stdio' subcommand
             args = ["stdio"]
-            
+
             # Optional: additional flags
             print("\nOptional GitHub MCP Server flags:")
             print("Common options: --read-only, --lockdown-mode, --dynamic-toolsets")
@@ -619,8 +622,11 @@ def configure_upstream() -> Dict[str, Any]:
                 "command": command,
                 "args": args,
                 "transport": "stdio",
-                "github_token": token
             }
+
+            # Only add token to config if provided (don't add empty string)
+            if token:
+                config["github_token"] = token
 
             return config
     else:
@@ -704,14 +710,24 @@ def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], upstream_
         lines.append(f"UPSTREAM_TRANSPORT=http")
         lines.append("")
 
-        # Add GitHub token if provided
+        # Add GitHub token section
+        lines.extend([
+            "# GitHub Personal Access Token (automatically used by server)",
+            "# The server reads this and adds 'Authorization: Bearer <token>' header",
+        ])
+
         if upstream_config.get("github_token"):
+            # Token was provided during setup
+            lines.append(f"GITHUB_PERSONAL_ACCESS_TOKEN={upstream_config['github_token']}")
+        else:
+            # Token not provided - add placeholder with instructions
             lines.extend([
-                "# GitHub Personal Access Token (automatically used by server)",
-                "# The server reads this and adds 'Authorization: Bearer <token>' header",
-                f"GITHUB_PERSONAL_ACCESS_TOKEN={upstream_config['github_token']}",
-                "",
+                "# Get from: https://github.com/settings/tokens",
+                "# Required scopes: repo, workflow, write:packages, delete:packages, admin:org",
+                "GITHUB_PERSONAL_ACCESS_TOKEN=",
             ])
+
+        lines.append("")
     else:
         # stdio transport (local server)
         lines.append(f"UPSTREAM_COMMAND={upstream_config['command']}")
@@ -719,13 +735,25 @@ def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], upstream_
         lines.append(f"UPSTREAM_TRANSPORT={upstream_config['transport']}")
         lines.append("")
 
-        # Add GitHub token if provided
-        if upstream_config.get("github_token"):
+        # Add GitHub token section if this is a GitHub server
+        if upstream_config.get("github_token") is not None:
+            # GitHub token was requested (either provided or skipped)
             lines.extend([
                 "# GitHub Personal Access Token (passed to upstream server via env)",
-                f"GITHUB_PERSONAL_ACCESS_TOKEN={upstream_config['github_token']}",
-                "",
             ])
+
+            if upstream_config.get("github_token"):
+                # Token was provided
+                lines.append(f"GITHUB_PERSONAL_ACCESS_TOKEN={upstream_config['github_token']}")
+            else:
+                # Token not provided - add placeholder with instructions
+                lines.extend([
+                    "# Get from: https://github.com/settings/tokens",
+                    "# Required scopes: repo, workflow, write:packages, delete:packages, admin:org",
+                    "GITHUB_PERSONAL_ACCESS_TOKEN=",
+                ])
+
+            lines.append("")
 
     if slack_config["enabled"]:
         lines.extend([
