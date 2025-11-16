@@ -21,6 +21,11 @@ from cite_before_act.slack.client import SlackClient
 from cite_before_act.slack.handlers import SlackHandler
 from config.settings import Settings
 
+# MCP Protocol Version
+# Default to 2025-06-18 (latest as of implementation)
+# Will be updated from negotiated version in initialize response
+MCP_PROTOCOL_VERSION = "2025-06-18"
+
 
 class ProxyServer:
     """FastMCP proxy server that wraps upstream servers with approval middleware."""
@@ -42,6 +47,7 @@ class ProxyServer:
         self.upstream_sse_task: Optional[asyncio.Task] = None  # Background task for SSE events
         self.upstream_tools: Dict[str, Dict[str, Any]] = {}
         self._request_id = 3  # Start after init and list_tools
+        self.mcp_protocol_version: str = MCP_PROTOCOL_VERSION  # Negotiated protocol version
 
         # Initialize components
         self._initialize_components()
@@ -156,7 +162,7 @@ class ProxyServer:
                 "id": 1,
                 "method": "initialize",
                 "params": {
-                    "protocolVersion": "2025-06-18",
+                    "protocolVersion": self.mcp_protocol_version,
                     "capabilities": {},
                     "clientInfo": {"name": "cite-before-act-proxy", "version": "0.1.0"},
                 },
@@ -208,6 +214,11 @@ class ProxyServer:
             if "error" in init_response:
                 raise RuntimeError(f"Upstream server initialization failed: {init_response['error']}")
 
+            # Extract negotiated protocol version from response
+            if "result" in init_response and "protocolVersion" in init_response["result"]:
+                self.mcp_protocol_version = init_response["result"]["protocolVersion"]
+                debug_log("Negotiated MCP protocol version: {}", self.mcp_protocol_version)
+
             # Send initialized notification
             initialized_notification = {
                 "jsonrpc": "2.0",
@@ -246,12 +257,12 @@ class ProxyServer:
             # For GitHub MCP server and similar remote servers, use SSE transport
             # even if configured as "http" - they typically use SSE over HTTP
             actual_transport = upstream_config.transport
-            if actual_transport == "http" and "githubcopilot.com" in upstream_config.url:
-                # GitHub MCP server remote uses SSE, not HTTP POST
-                actual_transport = "sse"
-                debug_log("Detected GitHub MCP server remote - using SSE transport instead of HTTP")
+            # Try HTTP POST first for GitHub MCP server (it may not support SSE)
+            # Only use SSE if explicitly configured
+            use_sse = actual_transport == "sse"
+            is_github = "githubcopilot.com" in upstream_config.url
             
-            if actual_transport == "sse":
+            if use_sse:
                 # SSE transport: Proper implementation for MCP SSE servers
                 # 1. Open SSE connection (GET) to receive events
                 # 2. Send requests via POST (try base URL first, then /messages)
@@ -266,11 +277,13 @@ class ProxyServer:
                 auth_headers = upstream_config.headers.copy()
                 post_headers = {
                     "Content-Type": "application/json",
+                    "MCP-Protocol-Version": self.mcp_protocol_version,  # Required by MCP spec
                     **auth_headers,
                 }
                 sse_headers = {
                     "Accept": "text/event-stream",
                     "Cache-Control": "no-cache",
+                    "MCP-Protocol-Version": self.mcp_protocol_version,  # Required by MCP spec
                     **auth_headers,
                 }
                 
@@ -298,7 +311,7 @@ class ProxyServer:
                     "id": 1,
                     "method": "initialize",
                     "params": {
-                        "protocolVersion": "2025-06-18",
+                        "protocolVersion": self.mcp_protocol_version,
                         "capabilities": {},
                         "clientInfo": {"name": "cite-before-act-proxy", "version": "0.1.0"},
                     },
@@ -346,6 +359,11 @@ class ProxyServer:
                 
                 if "error" in init_response:
                     raise RuntimeError(f"Upstream server initialization failed: {init_response['error']}")
+                
+                # Extract negotiated protocol version from response
+                if "result" in init_response and "protocolVersion" in init_response["result"]:
+                    self.mcp_protocol_version = init_response["result"]["protocolVersion"]
+                    debug_log("Negotiated MCP protocol version: {}", self.mcp_protocol_version)
                 
                 # Send initialized notification (fire and forget)
                 initialized_notification = {
@@ -395,19 +413,25 @@ class ProxyServer:
                             "inputSchema": tool.get("inputSchema", {}),
                         }
             else:
-                # HTTP POST transport (for other servers that support it)
+                # HTTP POST transport (for servers that support direct HTTP POST)
                 # Build headers for HTTP client
                 headers = {
                     "Content-Type": "application/json",
+                    "MCP-Protocol-Version": self.mcp_protocol_version,  # Required by MCP spec
                     **upstream_config.headers,  # Add custom headers (e.g., Authorization)
                 }
                 
-                # Create async HTTP client
+                # Preserve URL as-is (with or without trailing slash)
+                # Some servers are sensitive to trailing slashes
+                base_url = upstream_config.url
+                
+                # Create async HTTP client without base_url to have full control
                 self.upstream_http_client = httpx.AsyncClient(
-                    base_url=upstream_config.url,
-                    headers=headers,
-                    timeout=30.0,
+                    timeout=httpx.Timeout(30.0, connect=10.0),
                 )
+                
+                # Store the full URL for requests
+                self.upstream_messages_url = base_url
                 
                 # Initialize MCP connection
                 init_request = {
@@ -415,27 +439,67 @@ class ProxyServer:
                     "id": 1,
                     "method": "initialize",
                     "params": {
-                        "protocolVersion": "2025-06-18",
+                        "protocolVersion": self.mcp_protocol_version,
                         "capabilities": {},
                         "clientInfo": {"name": "cite-before-act-proxy", "version": "0.1.0"},
                     },
                 }
                 
-                # Send initialize request
+                # Send initialize request to the exact URL provided
+                # For GitHub MCP server, if HTTP POST fails, we might need SSE
                 try:
                     response = await self.upstream_http_client.post(
-                        "",  # Use base_url, so empty path
+                        base_url,
                         json=init_request,
+                        headers=headers,
                     )
                     response.raise_for_status()
                     init_response = response.json()
+                except httpx.HTTPStatusError as e:
+                    # If we get 400/404 and it's GitHub MCP server, try SSE as fallback
+                    if e.response.status_code in (400, 404) and is_github and actual_transport == "http":
+                        debug_log("HTTP POST failed for GitHub MCP server, trying SSE transport")
+                        # Fall back to SSE - we'll need to restart the connection
+                        # For now, provide detailed error and suggest using SSE explicitly
+                        error_msg = f"HTTP POST failed for GitHub MCP server (Status: {e.response.status_code})"
+                        error_msg += f"\nThe GitHub MCP server remote may require SSE transport."
+                        error_msg += f"\nTry setting UPSTREAM_TRANSPORT=sse in your configuration."
+                        if e.response is not None:
+                            try:
+                                error_body = e.response.text[:500]
+                                if error_body:
+                                    error_msg += f"\nServer response: {error_body}"
+                            except Exception:
+                                pass
+                        raise RuntimeError(error_msg)
+                    else:
+                        # For other servers or explicit errors, provide details
+                        error_msg = f"Failed to connect to upstream server: {e}"
+                        if e.response is not None:
+                            error_msg += f"\nStatus: {e.response.status_code}"
+                            error_msg += f"\nURL: {base_url}"
+                            try:
+                                error_body = e.response.text[:500]
+                                error_msg += f"\nResponse: {error_body}"
+                            except Exception:
+                                pass
+                        raise RuntimeError(error_msg)
                 except httpx.HTTPError as e:
-                    raise RuntimeError(f"Failed to connect to upstream server: {e}")
+                    error_msg = f"Failed to connect to upstream server: {e}"
+                    if hasattr(e, 'response') and e.response is not None:
+                        error_msg += f"\nStatus: {e.response.status_code}"
+                        error_msg += f"\nResponse: {e.response.text[:500]}"
+                    raise RuntimeError(error_msg)
                 except json.JSONDecodeError as e:
                     raise RuntimeError(f"Invalid response from upstream server: {e}")
                 
                 if "error" in init_response:
                     raise RuntimeError(f"Upstream server initialization failed: {init_response['error']}")
+                
+                # Extract negotiated protocol version from response
+                if "result" in init_response and "protocolVersion" in init_response["result"]:
+                    self.mcp_protocol_version = init_response["result"]["protocolVersion"]
+                    debug_log("Negotiated MCP protocol version: {}", self.mcp_protocol_version)
                 
                 # Send initialized notification
                 initialized_notification = {
@@ -443,7 +507,11 @@ class ProxyServer:
                     "method": "notifications/initialized",
                 }
                 try:
-                    await self.upstream_http_client.post("", json=initialized_notification)
+                    await self.upstream_http_client.post(
+                        base_url,
+                        json=initialized_notification,
+                        headers=headers,
+                    )
                 except httpx.HTTPError:
                     # Notification failures are non-fatal
                     pass
@@ -457,11 +525,19 @@ class ProxyServer:
                 }
                 
                 try:
-                    response = await self.upstream_http_client.post("", json=list_tools_request)
+                    response = await self.upstream_http_client.post(
+                        base_url,
+                        json=list_tools_request,
+                        headers=headers,
+                    )
                     response.raise_for_status()
                     tools_response = response.json()
                 except httpx.HTTPError as e:
-                    raise RuntimeError(f"Failed to list tools from upstream server: {e}")
+                    error_msg = f"Failed to list tools from upstream server: {e}"
+                    if hasattr(e, 'response') and e.response is not None:
+                        error_msg += f"\nStatus: {e.response.status_code}"
+                        error_msg += f"\nResponse: {e.response.text[:500]}"
+                    raise RuntimeError(error_msg)
                 except json.JSONDecodeError as e:
                     raise RuntimeError(f"Invalid response from upstream server: {e}")
                 
@@ -719,7 +795,10 @@ class ProxyServer:
                 
                 try:
                     # Build headers for POST request
-                    post_headers = {"Content-Type": "application/json"}
+                    post_headers = {
+                        "Content-Type": "application/json",
+                        "MCP-Protocol-Version": self.mcp_protocol_version,  # Required by MCP spec
+                    }
                     if self.settings.upstream and self.settings.upstream.headers:
                         post_headers.update(self.settings.upstream.headers)
                     
@@ -744,11 +823,13 @@ class ProxyServer:
             else:
                 # HTTP POST transport (direct response)
                 request_url = self.upstream_messages_url if self.upstream_messages_url else ""
-                request_headers = {"Content-Type": "application/json"}
+                request_headers = {
+                    "Content-Type": "application/json",
+                    "MCP-Protocol-Version": self.mcp_protocol_version,  # Required by MCP spec
+                }
                 # Add Authorization header if it was in the original config
                 if self.settings.upstream and self.settings.upstream.headers:
-                    if "Authorization" in self.settings.upstream.headers:
-                        request_headers["Authorization"] = self.settings.upstream.headers["Authorization"]
+                    request_headers.update(self.settings.upstream.headers)
                 
                 try:
                     http_response = await self.upstream_http_client.post(
