@@ -528,107 +528,77 @@ def configure_upstream() -> Dict[str, Any]:
             "transport": "stdio"
         }
     elif choice == "2":
-        # GitHub MCP server
+        # GitHub MCP server (local only - remote requires OAuth which is complex)
         print("\n" + "─" * 70)
-        print("GitHub MCP Server Setup")
+        print("GitHub MCP Server Setup (Local)")
         print("─" * 70)
-        print("\nChoose how to connect to GitHub MCP Server:")
-        print("  1. Remote Server (HTTP) - Recommended")
-        print("     • Uses GitHub's hosted MCP server at api.githubcopilot.com")
-        print("     • No local installation required")
-        print("     • Requires GitHub Personal Access Token")
-        print("  2. Local Server (stdio)")
-        print("     • Run github-mcp-server binary locally")
-        print("     • Requires downloading and installing the binary")
-        print("     • Requires GitHub Personal Access Token")
-        
-        github_choice = prompt("\nChoose option (1/2)", "1")
-        
-        if github_choice == "1":
-            # Remote GitHub MCP server (HTTP)
-            print("\n" + "─" * 70)
-            print("Remote GitHub MCP Server Configuration")
-            print("─" * 70)
-            print("\nThis will connect to GitHub's hosted MCP server.")
-            print("URL: https://api.githubcopilot.com/mcp/")
-            
-            # Get GitHub token
-            print("\n📝 GitHub Personal Access Token:")
-            print("1. Go to: https://github.com/settings/tokens")
-            print("2. Generate a new token (classic)")
-            print("3. Required scopes: repo, workflow, write:packages, delete:packages, admin:org, etc.")
-            print("   (Or use minimal scopes needed for your use case)")
-            
-            token = prompt("\nGitHub Personal Access Token", "")
+        print("\nThis will use a local GitHub MCP server binary.")
+        print("\nNote: The remote GitHub MCP server requires OAuth authentication,")
+        print("which is complex to set up. We recommend using the local server.")
+        print("\nYou'll need:")
+        print("1. GitHub MCP Server binary (download from https://github.com/github/github-mcp-server/releases)")
+        print("   Or use with npx: npx -y @modelcontextprotocol/server-github")
+        print("2. GitHub Personal Access Token (create at https://github.com/settings/tokens)")
 
-            if not token:
-                print_warning("No token provided. You'll need to set GITHUB_PERSONAL_ACCESS_TOKEN in your .env file")
+        # Check if github-mcp-server is in PATH
+        import shutil
+        github_mcp_path = shutil.which("github-mcp-server")
 
-            config = {
-                "url": "https://api.githubcopilot.com/mcp/",
-                "transport": "http",
-            }
+        # Also check for node/npx
+        npx_path = shutil.which("npx")
 
-            # Only add token to config if provided (don't add empty string)
-            if token:
-                config["github_token"] = token
-
-            return config
+        if github_mcp_path:
+            print_success(f"Found github-mcp-server at: {github_mcp_path}")
+            default_command = "github-mcp-server"
+        elif npx_path:
+            print_success(f"Found npx at: {npx_path}")
+            print("You can use: npx -y @modelcontextprotocol/server-github")
+            default_command = "npx"
         else:
-            # Local GitHub MCP server (stdio)
-            print("\n" + "─" * 70)
-            print("Local GitHub MCP Server Configuration")
-            print("─" * 70)
-            print("\nThis will use a local github-mcp-server binary.")
-            print("\nYou'll need:")
-            print("1. GitHub MCP Server binary (download from https://github.com/github/github-mcp-server/releases)")
-            print("2. GitHub Personal Access Token (create at https://github.com/settings/tokens)")
+            print_warning("Neither github-mcp-server nor npx found in PATH")
+            default_command = "github-mcp-server"
 
-            # Check if github-mcp-server is in PATH
-            import shutil
-            github_mcp_path = shutil.which("github-mcp-server")
-            if github_mcp_path:
-                print_success(f"Found github-mcp-server at: {github_mcp_path}")
-                command = "github-mcp-server"
-            else:
-                print_warning("github-mcp-server not found in PATH")
-                custom_path = prompt("Enter full path to github-mcp-server binary (or press Enter to use 'github-mcp-server')", "")
-                if custom_path:
-                    command = custom_path
-                else:
-                    command = "github-mcp-server"
-                    print_warning("Using 'github-mcp-server' - ensure it's in PATH or configuration will fail")
+        command_choice = prompt(f"Command to use (github-mcp-server/npx/custom path)", default_command)
 
-            # Get GitHub token
-            print("\n📝 GitHub Personal Access Token:")
-            print("Required scopes: repo, workflow, write:packages, delete:packages, admin:org, etc.")
-            print("Or use minimal scopes needed for your use case")
-            token = prompt("GitHub Personal Access Token", "")
-
-            if not token:
-                print_warning("No token provided. You'll need to set GITHUB_PERSONAL_ACCESS_TOKEN in your .env file")
-
-            # GitHub MCP server requires 'stdio' subcommand
+        if command_choice == "npx":
+            command = "npx"
+            args = ["-y", "@modelcontextprotocol/server-github"]
+        elif command_choice == "github-mcp-server":
+            command = "github-mcp-server"
+            args = ["stdio"]
+        else:
+            # Custom path
+            command = command_choice
             args = ["stdio"]
 
-            # Optional: additional flags
+        # Get GitHub token
+        print("\n📝 GitHub Personal Access Token:")
+        print("Required scopes: repo, workflow, write:packages, delete:packages, admin:org, etc.")
+        print("Or use minimal scopes needed for your use case")
+        token = prompt("GitHub Personal Access Token", "")
+
+        if not token:
+            print_warning("No token provided. You'll need to set GITHUB_PERSONAL_ACCESS_TOKEN in your .env file")
+
+        # Optional: additional flags (only if not using npx)
+        if command != "npx":
             print("\nOptional GitHub MCP Server flags:")
             print("Common options: --read-only, --lockdown-mode, --dynamic-toolsets")
             additional_args_str = prompt("Additional arguments (comma-separated, or press Enter for none)", "")
             if additional_args_str:
                 args.extend([arg.strip() for arg in additional_args_str.split(",")])
 
-            config = {
-                "command": command,
-                "args": args,
-                "transport": "stdio",
-            }
+        config = {
+            "command": command,
+            "args": args,
+            "transport": "stdio",
+        }
 
-            # Only add token to config if provided (don't add empty string)
-            if token:
-                config["github_token"] = token
+        # Only add token to config if provided (don't add empty string)
+        if token:
+            config["github_token"] = token
 
-            return config
+        return config
     else:
         # Custom server
         print("\nCustom Server Setup:")
