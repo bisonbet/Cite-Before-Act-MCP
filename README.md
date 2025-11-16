@@ -182,20 +182,7 @@ GITHUB_PERSONAL_ACCESS_TOKEN=ghp_your_token_here
 
 **macOS (Homebrew - Coming Soon):**
 ```bash
-# Once available:
-# brew install github/mcp/github-mcp-server
-
-# For now, download from releases:
-curl -L https://github.com/github/github-mcp-server/releases/latest/download/github-mcp-server-darwin-amd64 -o github-mcp-server
-chmod +x github-mcp-server
-sudo mv github-mcp-server /usr/local/bin/
-```
-
-**macOS (Apple Silicon):**
-```bash
-curl -L https://github.com/github/github-mcp-server/releases/latest/download/github-mcp-server-darwin-arm64 -o github-mcp-server
-chmod +x github-mcp-server
-sudo mv github-mcp-server /usr/local/bin/
+brew install github-mcp-server
 ```
 
 **Windows (PowerShell):**
@@ -729,17 +716,121 @@ DEBUG=true
 
 **Note:** Debug logs are written to `stderr` and will appear in Claude Desktop's logs. They do not affect normal operation when disabled.
 
-### Managing Secrets with .env Files
+### Configuration Architecture
 
-**Recommended Approach:** Store all sensitive tokens and secrets in a `.env` file instead of directly in your Claude Desktop configuration. This approach:
+Cite-Before-Act uses a **two-tier configuration system** that separates secrets, global settings, and per-server configuration:
 
-- ✅ **Works across different operating systems** (no OS-specific issues)
-- ✅ **Keeps secrets out of config files** (better security)
-- ✅ **Easy to manage** (one file for all secrets)
-- ✅ **Automatically loaded** by the server using `python-dotenv`
+#### 1. `.env` File (Global Defaults and Secrets)
 
-**Setup:**
+**Purpose:** Store secrets and global settings that apply to ALL wrapped MCP servers
 
+**Contains:**
+- 🔐 **Secrets**: `GITHUB_PERSONAL_ACCESS_TOKEN`, `SLACK_BOT_TOKEN`, etc.
+- 🌍 **Global Settings**: `ENABLE_SLACK`, `USE_LOCAL_APPROVAL`, `APPROVAL_TIMEOUT_SECONDS`
+- ⚙️ **Global Detection Defaults**: `DETECTION_ENABLE_CONVENTION`, `DETECTION_ENABLE_METADATA`
+
+**Location:** Project root directory (same as `.env.example`)
+
+**Example `.env` file:**
+```bash
+# =============================================================================
+# Secrets (NEVER commit to git!)
+# =============================================================================
+GITHUB_PERSONAL_ACCESS_TOKEN=ghp_your_token_here
+SLACK_BOT_TOKEN=xoxb-your-token-here
+
+# =============================================================================
+# Global Settings (apply to ALL servers)
+# =============================================================================
+# Slack Configuration
+ENABLE_SLACK=true
+SLACK_CHANNEL=#approvals
+
+# Approval Settings
+APPROVAL_TIMEOUT_SECONDS=300
+USE_LOCAL_APPROVAL=true
+USE_NATIVE_DIALOG=false  # Disabled when Slack is enabled
+
+# Detection Defaults
+DETECTION_ENABLE_CONVENTION=true
+DETECTION_ENABLE_METADATA=true
+```
+
+#### 2. Claude Desktop Config (Per-Server Configuration)
+
+**Purpose:** Configure each individual upstream MCP server you're wrapping
+
+**Contains:**
+- 🎯 **Server-Specific Config**: `UPSTREAM_COMMAND`, `UPSTREAM_ARGS`, `UPSTREAM_TRANSPORT`, `UPSTREAM_URL`
+- 🎛️ **Per-Server Detection Overrides**: `DETECTION_ALLOWLIST`, `DETECTION_BLOCKLIST`
+- 🔄 **Optional Per-Server Overrides**: Can override global settings if needed
+
+**Example Claude Desktop config with multiple servers:**
+```json
+{
+  "mcpServers": {
+    "filesystem-cite": {
+      "command": "/path/to/.venv/bin/python",
+      "args": ["-m", "server.main", "--transport", "stdio"],
+      "env": {
+        "UPSTREAM_COMMAND": "npx",
+        "UPSTREAM_ARGS": "-y,@modelcontextprotocol/server-filesystem,/Users/yourname/workspace",
+        "UPSTREAM_TRANSPORT": "stdio",
+        "DETECTION_ALLOWLIST": "write_file,edit_file,create_directory",
+        "DETECTION_BLOCKLIST": "read_file,list_directory"
+      }
+    },
+    "github-cite": {
+      "command": "/path/to/.venv/bin/python",
+      "args": ["-m", "server.main", "--transport", "stdio"],
+      "env": {
+        "UPSTREAM_COMMAND": "docker",
+        "UPSTREAM_ARGS": "run,-i,--rm,ghcr.io/github/github-mcp-server",
+        "UPSTREAM_TRANSPORT": "stdio",
+        "DETECTION_ALLOWLIST": "",
+        "DETECTION_BLOCKLIST": "read_file,get_file,list_files,search_code"
+      }
+    }
+  }
+}
+```
+
+#### Environment Variable Precedence
+
+**Priority Order:**
+1. **mcpServers.env** (highest) - Per-server overrides in Claude Desktop config
+2. **.env file** (lower) - Global defaults and secrets
+
+This allows you to:
+- ✅ **Share secrets** across multiple wrapped servers (GitHub token works for all GitHub servers)
+- ✅ **Use same Slack config** for all servers (one channel for all approvals)
+- ✅ **Configure each server differently** (different upstream commands, detection rules)
+- ✅ **Override global settings per-server** if needed (e.g., different timeout for specific server)
+
+**Example with override:**
+```bash
+# .env (global default)
+APPROVAL_TIMEOUT_SECONDS=300
+
+# Claude Desktop config (override for this server only)
+"critical-operations-cite": {
+  "env": {
+    "APPROVAL_TIMEOUT_SECONDS": "600",  # 10 minutes instead of 5
+    "UPSTREAM_COMMAND": "...",
+    ...
+  }
+}
+```
+
+#### Setup
+
+**Automatic (Recommended):**
+```bash
+python3 setup_wizard.py
+```
+The wizard automatically creates both `.env` and Claude Desktop config with the correct split.
+
+**Manual:**
 1. **Copy the example file:**
    ```bash
    cp .env.example .env
@@ -747,89 +838,95 @@ DEBUG=true
 
 2. **Edit `.env` and add your secrets:**
    ```bash
-   # GitHub Personal Access Token (for GitHub MCP Server)
    GITHUB_PERSONAL_ACCESS_TOKEN=ghp_your_token_here
-
-   # Slack Bot Token (if using Slack integration)
    SLACK_BOT_TOKEN=xoxb-your-token-here
    SLACK_CHANNEL=#approvals
    ```
 
-3. **The server automatically loads these values** when it starts - no need to add them to Claude Desktop config!
+3. **Add server-specific config to Claude Desktop** (see examples above)
 
-**How it works:**
+#### How It Works
 
-- The `.env` file is loaded by [`config/settings.py`](config/settings.py#L15) using `python-dotenv`
-- The server uses an **absolute path** to find `.env` in the project root, so it works regardless of which directory the MCP client launches from
-- Tokens are automatically applied:
-  - `GITHUB_PERSONAL_ACCESS_TOKEN` → Automatically added as `Authorization: Bearer <token>` header for GitHub MCP
-  - `SLACK_BOT_TOKEN` → Used for Slack integration
-  - `UPSTREAM_AUTH_TOKEN` → Generic auth token for other upstream servers (auto-formatted as `Bearer <token>`)
+- The `.env` file is loaded by [config/settings.py](config/settings.py#L15) using `python-dotenv`
+- Uses **absolute path** to find `.env` in project root (works regardless of launch directory)
+- `load_dotenv()` does NOT override existing environment variables
+- Claude Desktop sets mcpServers.env vars first, then `.env` fills in the rest
+- **Result:** Per-server config takes precedence, `.env` provides global defaults
 
-**Example `.env` file:**
-```bash
-# Secrets
-GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-SLACK_BOT_TOKEN=xoxb-your-token-here
+#### Benefits
 
-# Upstream Server
-UPSTREAM_URL=https://api.githubcopilot.com/mcp/
-UPSTREAM_TRANSPORT=http
-
-# Detection Settings
-DETECTION_ALLOWLIST=
-DETECTION_BLOCKLIST=read_file,get_file,list_files,search_code
-
-# Approval Settings
-APPROVAL_TIMEOUT_SECONDS=300
-USE_LOCAL_APPROVAL=true
-ENABLE_SLACK=true
-```
-
-**Claude Desktop config (no secrets!):**
-```json
-{
-  "mcpServers": {
-    "github-remote-cite": {
-      "command": "/path/to/.venv/bin/python",
-      "args": ["-m", "server.main", "--transport", "stdio"],
-      "env": {
-        "UPSTREAM_URL": "https://api.githubcopilot.com/mcp/",
-        "UPSTREAM_TRANSPORT": "http",
-        "DETECTION_ALLOWLIST": "",
-        "DETECTION_BLOCKLIST": "read_file,get_file,list_files",
-        "USE_LOCAL_APPROVAL": "true"
-      }
-    }
-  }
-}
-```
-
-**Note:**
-- You can set configuration in either `.env` or Claude Desktop's `env` section. Values in Claude Desktop's config take precedence, but using `.env` for secrets is recommended.
-- The `.env` file **must be in the project root** (same directory as `.env.example`). The server automatically finds it using an absolute path, so it works regardless of which directory any MCP client launches the server from.
+- 🔒 **Security**: Secrets stay in `.env`, never in Claude Desktop config
+- 🌐 **Cross-Platform**: Works on macOS, Windows, Linux (no OS-specific issues)
+- 📦 **Multi-Server**: Share secrets and global settings across all wrapped servers
+- 🎯 **Flexibility**: Per-server customization when needed
+- 🔄 **Maintainable**: Update global settings in one place (`.env`)
 
 ### Environment Variables
 
-See [`.env.example`](.env.example) for complete documentation. Key variables:
+See [`.env.example`](.env.example) for complete documentation.
+
+#### Global Variables (in `.env` file)
+
+These apply to ALL wrapped MCP servers:
+
+**Secrets:**
+```bash
+GITHUB_PERSONAL_ACCESS_TOKEN=ghp_...  # GitHub PAT (secret)
+SLACK_BOT_TOKEN=xoxb-...              # Slack bot token (secret)
+UPSTREAM_AUTH_TOKEN=...               # Generic auth token (secret)
+```
 
 **Approval Settings:**
 ```bash
 APPROVAL_TIMEOUT_SECONDS=300    # Timeout in seconds
-USE_LOCAL_APPROVAL=true         # Enable local approval (file-based CLI logging)
+USE_LOCAL_APPROVAL=true         # Enable local approval (GUI/file-based)
 USE_NATIVE_DIALOG=true          # Use native OS dialogs (auto-disabled if Slack enabled)
 ENABLE_SLACK=true               # Enable Slack (requires token, disables native dialogs)
 ```
 
 **Slack Configuration:**
 ```bash
-# Add these to your .env file (recommended) or Claude Desktop config
-SLACK_BOT_TOKEN=xoxb-...        # Bot token (required for Slack)
 SLACK_CHANNEL=#approvals        # Channel name or ID
 SLACK_USER_ID=U1234567890       # For DMs instead of channel
 ```
 
+**Detection Defaults:**
+```bash
+DETECTION_ENABLE_CONVENTION=true   # Detect by naming (write_, delete_, etc.)
+DETECTION_ENABLE_METADATA=true     # Detect by description keywords
+```
+
+#### Per-Server Variables (in Claude Desktop `mcpServers.env`)
+
+These are specific to each wrapped MCP server:
+
+**Upstream Server Configuration:**
+```bash
+UPSTREAM_COMMAND=docker                           # Command to run upstream server
+UPSTREAM_ARGS=run,-i,--rm,ghcr.io/github/...     # Arguments (comma-separated)
+UPSTREAM_TRANSPORT=stdio                          # Transport: stdio, http, or sse
+UPSTREAM_URL=http://localhost:3010                # URL (for http/sse transport)
+```
+
+**Detection Overrides (optional per-server):**
+```bash
+DETECTION_ALLOWLIST=write_file,edit_file          # Tools that always need approval
+DETECTION_BLOCKLIST=read_file,list_directory      # Tools that never need approval
+```
+
 ### Detection Settings
+
+Detection settings work across two levels:
+
+#### Global Defaults (`.env` file)
+
+```bash
+# Enable detection strategies (work for ALL tools across all servers)
+DETECTION_ENABLE_CONVENTION=true   # Detect by naming (write_, delete_, remove_, send_, etc.)
+DETECTION_ENABLE_METADATA=true     # Detect by tool description keywords
+```
+
+#### Per-Server Overrides (Claude Desktop `mcpServers.env`)
 
 ```bash
 # Explicit allowlist (additive - marks these as mutating, but doesn't disable other detection)
@@ -837,11 +934,12 @@ DETECTION_ALLOWLIST=write_file,edit_file,create_directory,move_file
 
 # Explicit blocklist (override - marks these as non-mutating even if convention/metadata detects them)
 DETECTION_BLOCKLIST=read_file,list_directory,get_info
-
-# Enable detection strategies (work for ALL tools, not just allowlist)
-DETECTION_ENABLE_CONVENTION=true   # Detect by naming (write_, delete_, remove_, send_, etc.)
-DETECTION_ENABLE_METADATA=true     # Detect by tool description keywords
 ```
+
+**Why split these?**
+- Different upstream servers have different tool names (GitHub: `create_repository`, Filesystem: `write_file`)
+- Each server needs its own allowlist/blocklist tailored to its tools
+- Global detection strategies (convention, metadata) work universally across all servers
 
 **Detection Strategies (in priority order):**
 1. **Blocklist**: Explicitly listed tools never require approval (highest priority override)
