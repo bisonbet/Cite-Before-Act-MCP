@@ -36,6 +36,10 @@ class ProxyServer:
         self.middleware: Optional[Middleware] = None
         self.upstream_process: Optional[subprocess.Popen] = None
         self.upstream_http_client: Optional[httpx.AsyncClient] = None
+        self.upstream_messages_url: Optional[str] = None  # For SSE transport
+        self.upstream_sse_stream: Optional[httpx.AsyncClient] = None  # SSE event stream
+        self.upstream_pending_responses: Dict[int, asyncio.Future] = {}  # Request ID -> Future for SSE
+        self.upstream_sse_task: Optional[asyncio.Task] = None  # Background task for SSE events
         self.upstream_tools: Dict[str, Dict[str, Any]] = {}
         self._request_id = 3  # Start after init and list_tools
 
@@ -239,82 +243,237 @@ class ProxyServer:
 
         elif upstream_config.transport in ("http", "sse") and upstream_config.url:
             # HTTP/SSE transport for remote MCP servers
-            # Build headers for HTTP client
-            headers = {
-                "Content-Type": "application/json",
-                **upstream_config.headers,  # Add custom headers (e.g., Authorization)
-            }
+            # For GitHub MCP server and similar remote servers, use SSE transport
+            # even if configured as "http" - they typically use SSE over HTTP
+            actual_transport = upstream_config.transport
+            if actual_transport == "http" and "githubcopilot.com" in upstream_config.url:
+                # GitHub MCP server remote uses SSE, not HTTP POST
+                actual_transport = "sse"
+                debug_log("Detected GitHub MCP server remote - using SSE transport instead of HTTP")
             
-            # Create async HTTP client
-            self.upstream_http_client = httpx.AsyncClient(
-                base_url=upstream_config.url,
-                headers=headers,
-                timeout=30.0,
-            )
-            
-            # Initialize MCP connection
-            init_request = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-06-18",
-                    "capabilities": {},
-                    "clientInfo": {"name": "cite-before-act-proxy", "version": "0.1.0"},
-                },
-            }
-            
-            # Send initialize request
-            try:
-                response = await self.upstream_http_client.post(
-                    "",  # Use base_url, so empty path
-                    json=init_request,
+            if actual_transport == "sse":
+                # SSE transport: Proper implementation for MCP SSE servers
+                # 1. Open SSE connection (GET) to receive events
+                # 2. Send requests via POST (try base URL first, then /messages)
+                # 3. Parse SSE events and match to requests
+                
+                base_url = upstream_config.url.rstrip("/")
+                # Try base URL first, fallback to /messages if needed
+                messages_url = base_url  # Will try base URL first
+                sse_url = base_url  # SSE events come from base URL
+                
+                # Build headers for SSE and POST requests
+                auth_headers = upstream_config.headers.copy()
+                post_headers = {
+                    "Content-Type": "application/json",
+                    **auth_headers,
+                }
+                sse_headers = {
+                    "Accept": "text/event-stream",
+                    "Cache-Control": "no-cache",
+                    **auth_headers,
+                }
+                
+                # Create HTTP client for POST requests
+                self.upstream_http_client = httpx.AsyncClient(
+                    timeout=httpx.Timeout(30.0, connect=10.0),
                 )
-                response.raise_for_status()
-                init_response = response.json()
-            except httpx.HTTPError as e:
-                raise RuntimeError(f"Failed to connect to upstream server: {e}")
-            except json.JSONDecodeError as e:
-                raise RuntimeError(f"Invalid response from upstream server: {e}")
-            
-            if "error" in init_response:
-                raise RuntimeError(f"Upstream server initialization failed: {init_response['error']}")
-            
-            # Send initialized notification
-            initialized_notification = {
-                "jsonrpc": "2.0",
-                "method": "notifications/initialized",
-            }
-            try:
-                await self.upstream_http_client.post("", json=initialized_notification)
-            except httpx.HTTPError:
-                # Notification failures are non-fatal
-                pass
-            
-            # List tools from upstream server
-            list_tools_request = {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/list",
-                "params": {},
-            }
-            
-            try:
-                response = await self.upstream_http_client.post("", json=list_tools_request)
-                response.raise_for_status()
-                tools_response = response.json()
-            except httpx.HTTPError as e:
-                raise RuntimeError(f"Failed to list tools from upstream server: {e}")
-            except json.JSONDecodeError as e:
-                raise RuntimeError(f"Invalid response from upstream server: {e}")
-            
-            if "result" in tools_response and "tools" in tools_response["result"]:
-                for tool in tools_response["result"]["tools"]:
-                    self.upstream_tools[tool["name"]] = {
-                        "name": tool["name"],
-                        "description": tool.get("description", ""),
-                        "inputSchema": tool.get("inputSchema", {}),
-                    }
+                
+                # Create separate client for SSE stream (needs longer timeout)
+                self.upstream_sse_stream = httpx.AsyncClient(
+                    timeout=httpx.Timeout(None, connect=10.0),  # No read timeout for SSE
+                )
+                
+                # Store messages URL
+                self.upstream_messages_url = messages_url
+                
+                # Start SSE event reader in background
+                self.upstream_sse_task = asyncio.create_task(
+                    self._read_sse_events(sse_url, sse_headers)
+                )
+                
+                # Initialize MCP connection via POST to /messages
+                init_request = {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": {},
+                        "clientInfo": {"name": "cite-before-act-proxy", "version": "0.1.0"},
+                    },
+                }
+                
+                # For SSE, send requests via POST and wait for responses via SSE stream
+                # Send initialize request
+                init_future = asyncio.Future()
+                self.upstream_pending_responses[1] = init_future
+                
+                try:
+                    # Try POST to base URL first
+                    try:
+                        await self.upstream_http_client.post(
+                            messages_url,
+                            json=init_request,
+                            headers=post_headers,
+                        )
+                    except httpx.HTTPStatusError as e:
+                        # If 404/400, try /messages endpoint
+                        if e.response.status_code in (400, 404) and messages_url == base_url:
+                            debug_log("Base URL failed, trying /messages endpoint")
+                            messages_url = f"{base_url}/messages"
+                            self.upstream_messages_url = messages_url
+                            await self.upstream_http_client.post(
+                                messages_url,
+                                json=init_request,
+                                headers=post_headers,
+                            )
+                        else:
+                            raise
+                    
+                    # Wait for response via SSE (with timeout)
+                    init_response = await asyncio.wait_for(init_future, timeout=30.0)
+                except asyncio.TimeoutError:
+                    raise RuntimeError("Timeout waiting for initialize response from SSE server")
+                except httpx.HTTPError as e:
+                    error_msg = f"Failed to send initialize request: {e}"
+                    if hasattr(e, 'response') and e.response is not None:
+                        error_msg += f"\nStatus: {e.response.status_code}"
+                        error_msg += f"\nResponse: {e.response.text[:500]}"
+                    raise RuntimeError(error_msg)
+                finally:
+                    self.upstream_pending_responses.pop(1, None)
+                
+                if "error" in init_response:
+                    raise RuntimeError(f"Upstream server initialization failed: {init_response['error']}")
+                
+                # Send initialized notification (fire and forget)
+                initialized_notification = {
+                    "jsonrpc": "2.0",
+                    "method": "notifications/initialized",
+                }
+                try:
+                    await self.upstream_http_client.post(
+                        messages_url,
+                        json=initialized_notification,
+                        headers=post_headers,
+                    )
+                except httpx.HTTPError:
+                    # Notification failures are non-fatal
+                    pass
+                
+                # List tools from upstream server
+                list_tools_request = {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/list",
+                    "params": {},
+                }
+                
+                tools_future = asyncio.Future()
+                self.upstream_pending_responses[2] = tools_future
+                
+                try:
+                    await self.upstream_http_client.post(
+                        messages_url,
+                        json=list_tools_request,
+                        headers=post_headers,
+                    )
+                    tools_response = await asyncio.wait_for(tools_future, timeout=30.0)
+                except asyncio.TimeoutError:
+                    raise RuntimeError("Timeout waiting for tools/list response from SSE server")
+                except httpx.HTTPError as e:
+                    raise RuntimeError(f"Failed to list tools from upstream server: {e}")
+                finally:
+                    self.upstream_pending_responses.pop(2, None)
+                
+                if "result" in tools_response and "tools" in tools_response["result"]:
+                    for tool in tools_response["result"]["tools"]:
+                        self.upstream_tools[tool["name"]] = {
+                            "name": tool["name"],
+                            "description": tool.get("description", ""),
+                            "inputSchema": tool.get("inputSchema", {}),
+                        }
+            else:
+                # HTTP POST transport (for other servers that support it)
+                # Build headers for HTTP client
+                headers = {
+                    "Content-Type": "application/json",
+                    **upstream_config.headers,  # Add custom headers (e.g., Authorization)
+                }
+                
+                # Create async HTTP client
+                self.upstream_http_client = httpx.AsyncClient(
+                    base_url=upstream_config.url,
+                    headers=headers,
+                    timeout=30.0,
+                )
+                
+                # Initialize MCP connection
+                init_request = {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": {},
+                        "clientInfo": {"name": "cite-before-act-proxy", "version": "0.1.0"},
+                    },
+                }
+                
+                # Send initialize request
+                try:
+                    response = await self.upstream_http_client.post(
+                        "",  # Use base_url, so empty path
+                        json=init_request,
+                    )
+                    response.raise_for_status()
+                    init_response = response.json()
+                except httpx.HTTPError as e:
+                    raise RuntimeError(f"Failed to connect to upstream server: {e}")
+                except json.JSONDecodeError as e:
+                    raise RuntimeError(f"Invalid response from upstream server: {e}")
+                
+                if "error" in init_response:
+                    raise RuntimeError(f"Upstream server initialization failed: {init_response['error']}")
+                
+                # Send initialized notification
+                initialized_notification = {
+                    "jsonrpc": "2.0",
+                    "method": "notifications/initialized",
+                }
+                try:
+                    await self.upstream_http_client.post("", json=initialized_notification)
+                except httpx.HTTPError:
+                    # Notification failures are non-fatal
+                    pass
+                
+                # List tools from upstream server
+                list_tools_request = {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/list",
+                    "params": {},
+                }
+                
+                try:
+                    response = await self.upstream_http_client.post("", json=list_tools_request)
+                    response.raise_for_status()
+                    tools_response = response.json()
+                except httpx.HTTPError as e:
+                    raise RuntimeError(f"Failed to list tools from upstream server: {e}")
+                except json.JSONDecodeError as e:
+                    raise RuntimeError(f"Invalid response from upstream server: {e}")
+                
+                if "result" in tools_response and "tools" in tools_response["result"]:
+                    for tool in tools_response["result"]["tools"]:
+                        self.upstream_tools[tool["name"]] = {
+                            "name": tool["name"],
+                            "description": tool.get("description", ""),
+                            "inputSchema": tool.get("inputSchema", {}),
+                        }
+                
+                self.upstream_messages_url = None  # Use base URL for HTTP POST
         else:
             raise ValueError("Invalid upstream server configuration")
 
@@ -553,14 +712,60 @@ class ProxyServer:
             response = json.loads(response_line.strip())
         elif self.upstream_http_client:
             # HTTP/SSE transport
-            try:
-                http_response = await self.upstream_http_client.post("", json=tool_request)
-                http_response.raise_for_status()
-                response = http_response.json()
-            except httpx.HTTPError as e:
-                raise RuntimeError(f"HTTP request to upstream server failed: {e}")
-            except json.JSONDecodeError as e:
-                raise RuntimeError(f"Invalid JSON response from upstream server: {e}")
+            if self.upstream_sse_stream and self.upstream_messages_url:
+                # SSE transport: Send POST to /messages, wait for response via SSE
+                request_future = asyncio.Future()
+                self.upstream_pending_responses[request_id] = request_future
+                
+                try:
+                    # Build headers for POST request
+                    post_headers = {"Content-Type": "application/json"}
+                    if self.settings.upstream and self.settings.upstream.headers:
+                        post_headers.update(self.settings.upstream.headers)
+                    
+                    # Send POST request to /messages
+                    await self.upstream_http_client.post(
+                        self.upstream_messages_url,
+                        json=tool_request,
+                        headers=post_headers,
+                    )
+                    # Wait for response via SSE (with timeout)
+                    response = await asyncio.wait_for(request_future, timeout=60.0)
+                except asyncio.TimeoutError:
+                    raise RuntimeError(f"Timeout waiting for response to tool '{tool_name}' from SSE server")
+                except httpx.HTTPError as e:
+                    error_msg = f"HTTP request to upstream server failed: {e}"
+                    if hasattr(e, 'response') and e.response is not None:
+                        error_msg += f"\nStatus: {e.response.status_code}"
+                        error_msg += f"\nResponse: {e.response.text[:500]}"
+                    raise RuntimeError(error_msg)
+                finally:
+                    self.upstream_pending_responses.pop(request_id, None)
+            else:
+                # HTTP POST transport (direct response)
+                request_url = self.upstream_messages_url if self.upstream_messages_url else ""
+                request_headers = {"Content-Type": "application/json"}
+                # Add Authorization header if it was in the original config
+                if self.settings.upstream and self.settings.upstream.headers:
+                    if "Authorization" in self.settings.upstream.headers:
+                        request_headers["Authorization"] = self.settings.upstream.headers["Authorization"]
+                
+                try:
+                    http_response = await self.upstream_http_client.post(
+                        request_url,
+                        json=tool_request,
+                        headers=request_headers,
+                    )
+                    http_response.raise_for_status()
+                    response = http_response.json()
+                except httpx.HTTPError as e:
+                    error_msg = f"HTTP request to upstream server failed: {e}"
+                    if hasattr(e, 'response') and e.response is not None:
+                        error_msg += f"\nStatus: {e.response.status_code}"
+                        error_msg += f"\nResponse: {e.response.text[:500]}"
+                    raise RuntimeError(error_msg)
+                except json.JSONDecodeError as e:
+                    raise RuntimeError(f"Invalid JSON response from upstream server: {e}")
         else:
             raise RuntimeError("Upstream server not available")
 
@@ -588,6 +793,76 @@ class ProxyServer:
             return result
 
         return None
+
+    async def _read_sse_events(self, sse_url: str, sse_headers: Dict[str, str]) -> None:
+        """Read SSE events from upstream server and match them to pending requests.
+        
+        Args:
+            sse_url: URL to connect to for SSE events
+            sse_headers: Headers to use for SSE connection
+        """
+        try:
+            async with self.upstream_sse_stream.stream(
+                "GET",
+                sse_url,
+                headers=sse_headers,
+            ) as response:
+                response.raise_for_status()
+                
+                # Buffer for incomplete SSE messages
+                event_data = []
+                
+                async for line in response.aiter_lines():
+                    # SSE format: lines starting with "data: " contain the payload
+                    # Empty line indicates end of event
+                    if line.startswith("data: "):
+                        data = line[6:]  # Remove "data: " prefix
+                        event_data.append(data)
+                    elif line == "" and event_data:
+                        # Empty line indicates end of event, process accumulated data
+                        # Join all data lines (SSE allows multi-line data)
+                        buffer = "\n".join(event_data)
+                        event_data = []
+                        
+                        if not buffer.strip():
+                            continue
+                        
+                        try:
+                            message = json.loads(buffer)
+                            
+                            # Check if this is a response to a pending request
+                            if "id" in message:
+                                request_id = message["id"]
+                                if request_id in self.upstream_pending_responses:
+                                    future = self.upstream_pending_responses[request_id]
+                                    if not future.done():
+                                        future.set_result(message)
+                                        debug_log("Matched SSE response for request ID: {}", request_id)
+                        except json.JSONDecodeError:
+                            # Skip invalid JSON
+                            debug_log("Invalid JSON in SSE event: {}", buffer[:200])
+                    elif line.startswith(":"):
+                        # Comment line, ignore
+                        continue
+                    elif line.startswith("event: "):
+                        # Event type, can be ignored for now
+                        continue
+                    elif line.startswith("id: "):
+                        # Event ID, can be ignored for now
+                        continue
+                    elif line.startswith("retry: "):
+                        # Retry interval, can be ignored for now
+                        continue
+                            
+        except asyncio.CancelledError:
+            # Task was cancelled, clean up
+            pass
+        except Exception as e:
+            debug_log("Error reading SSE events: {}", e)
+            # Cancel all pending requests
+            for future in self.upstream_pending_responses.values():
+                if not future.done():
+                    future.set_exception(RuntimeError(f"SSE connection error: {e}"))
 
     async def create_server(self) -> FastMCP:
         """Create and configure the FastMCP server.
