@@ -529,57 +529,108 @@ def configure_upstream() -> Dict[str, Any]:
         }
     elif choice == "2":
         # GitHub MCP server
-        print("\nGitHub MCP Server Setup:")
-        print("This will use: github-mcp-server")
-        print("\nYou'll need:")
-        print("1. GitHub MCP Server binary (download from https://github.com/github/github-mcp-server/releases)")
-        print("2. GitHub Personal Access Token (create at https://github.com/settings/tokens)")
-
-        # Check if github-mcp-server is in PATH
-        import shutil
-        github_mcp_path = shutil.which("github-mcp-server")
-        if github_mcp_path:
-            print_success(f"Found github-mcp-server at: {github_mcp_path}")
-            command = "github-mcp-server"
+        print("\n" + "─" * 70)
+        print("GitHub MCP Server Setup")
+        print("─" * 70)
+        print("\nChoose how to connect to GitHub MCP Server:")
+        print("  1. Remote Server (HTTP) - Recommended")
+        print("     • Uses GitHub's hosted MCP server at api.githubcopilot.com")
+        print("     • No local installation required")
+        print("     • Requires GitHub Personal Access Token")
+        print("  2. Local Server (stdio)")
+        print("     • Run github-mcp-server binary locally")
+        print("     • Requires downloading and installing the binary")
+        print("     • Requires GitHub Personal Access Token")
+        
+        github_choice = prompt("\nChoose option (1/2)", "1")
+        
+        if github_choice == "1":
+            # Remote GitHub MCP server (HTTP)
+            print("\n" + "─" * 70)
+            print("Remote GitHub MCP Server Configuration")
+            print("─" * 70)
+            print("\nThis will connect to GitHub's hosted MCP server.")
+            print("URL: https://api.githubcopilot.com/mcp/")
+            
+            # Get GitHub token
+            print("\n📝 GitHub Personal Access Token:")
+            print("1. Go to: https://github.com/settings/tokens")
+            print("2. Generate a new token (classic)")
+            print("3. Required scopes: repo, workflow, write:packages, delete:packages, admin:org, etc.")
+            print("   (Or use minimal scopes needed for your use case)")
+            
+            token = prompt("\nGitHub Personal Access Token", "")
+            
+            if not token:
+                print_warning("No token provided. You'll need to set UPSTREAM_AUTH_TOKEN or UPSTREAM_HEADER_Authorization")
+                token = ""
+            
+            # Ask if they want to use Claude Desktop input prompt for token
+            use_input_prompt = prompt_yes_no(
+                "\nUse Claude Desktop input prompt for token? (recommended for security)",
+                default=True
+            )
+            
+            config = {
+                "url": "https://api.githubcopilot.com/mcp/",
+                "transport": "http",
+                "github_token": token,
+                "use_input_prompt": use_input_prompt
+            }
+            
+            return config
         else:
-            print_warning("github-mcp-server not found in PATH")
-            custom_path = prompt("Enter full path to github-mcp-server binary (or press Enter to use 'github-mcp-server')", "")
-            if custom_path:
-                command = custom_path
-            else:
+            # Local GitHub MCP server (stdio)
+            print("\n" + "─" * 70)
+            print("Local GitHub MCP Server Configuration")
+            print("─" * 70)
+            print("\nThis will use a local github-mcp-server binary.")
+            print("\nYou'll need:")
+            print("1. GitHub MCP Server binary (download from https://github.com/github/github-mcp-server/releases)")
+            print("2. GitHub Personal Access Token (create at https://github.com/settings/tokens)")
+
+            # Check if github-mcp-server is in PATH
+            import shutil
+            github_mcp_path = shutil.which("github-mcp-server")
+            if github_mcp_path:
+                print_success(f"Found github-mcp-server at: {github_mcp_path}")
                 command = "github-mcp-server"
-                print_warning("Using 'github-mcp-server' - ensure it's in PATH or configuration will fail")
+            else:
+                print_warning("github-mcp-server not found in PATH")
+                custom_path = prompt("Enter full path to github-mcp-server binary (or press Enter to use 'github-mcp-server')", "")
+                if custom_path:
+                    command = custom_path
+                else:
+                    command = "github-mcp-server"
+                    print_warning("Using 'github-mcp-server' - ensure it's in PATH or configuration will fail")
 
-        # Get GitHub token
-        print("\nGitHub Personal Access Token:")
-        print("Required scopes: repo, workflow, write:packages, delete:packages, admin:org, etc.")
-        print("Or use minimal scopes needed for your use case")
-        token = prompt("GitHub Personal Access Token", "")
-        
-        if not token:
-            print_warning("No token provided. You'll need to set GITHUB_PERSONAL_ACCESS_TOKEN in your .env file")
+            # Get GitHub token
+            print("\n📝 GitHub Personal Access Token:")
+            print("Required scopes: repo, workflow, write:packages, delete:packages, admin:org, etc.")
+            print("Or use minimal scopes needed for your use case")
+            token = prompt("GitHub Personal Access Token", "")
+            
+            if not token:
+                print_warning("No token provided. You'll need to set GITHUB_PERSONAL_ACCESS_TOKEN in your .env file")
 
-        # GitHub MCP server requires 'stdio' subcommand
-        args = ["stdio"]
-        
-        # Optional: additional flags
-        print("\nOptional GitHub MCP Server flags:")
-        print("Common options: --read-only, --lockdown-mode, --dynamic-toolsets")
-        additional_args_str = prompt("Additional arguments (comma-separated, or press Enter for none)", "")
-        if additional_args_str:
-            args.extend([arg.strip() for arg in additional_args_str.split(",")])
+            # GitHub MCP server requires 'stdio' subcommand
+            args = ["stdio"]
+            
+            # Optional: additional flags
+            print("\nOptional GitHub MCP Server flags:")
+            print("Common options: --read-only, --lockdown-mode, --dynamic-toolsets")
+            additional_args_str = prompt("Additional arguments (comma-separated, or press Enter for none)", "")
+            if additional_args_str:
+                args.extend([arg.strip() for arg in additional_args_str.split(",")])
 
-        config = {
-            "command": command,
-            "args": args,
-            "transport": "stdio"
-        }
+            config = {
+                "command": command,
+                "args": args,
+                "transport": "stdio",
+                "github_token": token
+            }
 
-        # Store token in a way that will be added to env
-        # We'll handle this in generate_env_file and generate_claude_config
-        config["github_token"] = token
-
-        return config
+            return config
     else:
         # Custom server
         print("\nCustom Server Setup:")
@@ -622,7 +673,11 @@ def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], upstream_
     ]
     
     # Set defaults based on upstream server type
-    is_github = upstream_config.get("command") == "github-mcp-server" or "github" in upstream_config.get("command", "").lower()
+    is_github = (
+        upstream_config.get("command") == "github-mcp-server" 
+        or "github" in upstream_config.get("command", "").lower()
+        or upstream_config.get("transport") == "http" and "githubcopilot.com" in upstream_config.get("url", "")
+    )
     
     if is_github:
         # GitHub MCP server defaults
@@ -648,23 +703,37 @@ def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], upstream_
         "USE_LOCAL_APPROVAL=true",
         "",
         "# Upstream Server Configuration",
-        f"UPSTREAM_COMMAND={upstream_config['command']}",
-        f"UPSTREAM_ARGS={','.join(upstream_config['args'])}",
-        f"UPSTREAM_TRANSPORT={upstream_config['transport']}",
-        "",
     ])
-
-    if upstream_config.get("url"):
-        lines.append(f"UPSTREAM_URL={upstream_config['url']}")
-        lines.append("")
     
-    # Add GitHub token if provided
-    if upstream_config.get("github_token"):
-        lines.extend([
-            "# GitHub MCP Server Configuration",
-            f"GITHUB_PERSONAL_ACCESS_TOKEN={upstream_config['github_token']}",
-            "",
-        ])
+    # Handle different transport types
+    if upstream_config.get("transport") == "http":
+        # HTTP transport (remote server)
+        lines.append(f"UPSTREAM_URL={upstream_config['url']}")
+        lines.append(f"UPSTREAM_TRANSPORT=http")
+        lines.append("")
+        
+        # Add GitHub token if provided (for .env file, not Claude Desktop config)
+        if upstream_config.get("github_token"):
+            lines.extend([
+                "# GitHub MCP Server Configuration",
+                "# Note: For Claude Desktop, use UPSTREAM_HEADER_Authorization or UPSTREAM_AUTH_TOKEN",
+                f"UPSTREAM_AUTH_TOKEN={upstream_config['github_token']}",
+                "",
+            ])
+    else:
+        # stdio transport (local server)
+        lines.append(f"UPSTREAM_COMMAND={upstream_config['command']}")
+        lines.append(f"UPSTREAM_ARGS={','.join(upstream_config['args'])}")
+        lines.append(f"UPSTREAM_TRANSPORT={upstream_config['transport']}")
+        lines.append("")
+        
+        # Add GitHub token if provided
+        if upstream_config.get("github_token"):
+            lines.extend([
+                "# GitHub MCP Server Configuration",
+                f"GITHUB_PERSONAL_ACCESS_TOKEN={upstream_config['github_token']}",
+                "",
+            ])
 
     if slack_config["enabled"]:
         lines.extend([
@@ -713,18 +782,17 @@ def generate_claude_config(project_dir: Path, venv_dir: Path, slack_config: Dict
     python_exe = get_venv_python(venv_dir)
 
     # Set defaults based on upstream server type
-    is_github = upstream_config.get("command") == "github-mcp-server" or "github" in upstream_config.get("command", "").lower()
+    is_github = (
+        upstream_config.get("command") == "github-mcp-server" 
+        or "github" in upstream_config.get("command", "").lower()
+        or upstream_config.get("transport") == "http" and "githubcopilot.com" in upstream_config.get("url", "")
+    )
     
     env = {
-        # Upstream server configuration
-        "UPSTREAM_COMMAND": upstream_config["command"],
-        "UPSTREAM_ARGS": ",".join(upstream_config["args"]),
-        "UPSTREAM_TRANSPORT": upstream_config["transport"],
-        
         # Detection settings
         # Allowlist is additive - convention/metadata detection still works for other tools
         "DETECTION_ALLOWLIST": "" if is_github else "write_file,edit_file,create_directory,move_file",
-        "DETECTION_BLOCKLIST": "read_file,get_file,list_files,search_code,get_issue,list_issues,get_pull_request,list_pull_requests" if is_github else "read_text_file,read_media_file,list_directory,get_file_info",
+        "DETECTION_BLOCKLIST": "read_file,get_file,list_files,search_code,get_issue,list_issues,get_pull_request,list_pull_requests,search_repositories,get_repository,list_repositories,get_user,list_users,search_users" if is_github else "read_text_file,read_media_file,list_directory,get_file_info",
         "DETECTION_ENABLE_CONVENTION": "true",
         "DETECTION_ENABLE_METADATA": "true",
         
@@ -733,13 +801,31 @@ def generate_claude_config(project_dir: Path, venv_dir: Path, slack_config: Dict
         "USE_LOCAL_APPROVAL": "true",
     }
     
-    # Add upstream URL if provided
-    if upstream_config.get("url"):
+    # Handle different transport types
+    if upstream_config.get("transport") == "http":
+        # HTTP transport (remote server)
         env["UPSTREAM_URL"] = upstream_config["url"]
-    
-    # Add GitHub token if provided
-    if upstream_config.get("github_token"):
-        env["GITHUB_PERSONAL_ACCESS_TOKEN"] = upstream_config["github_token"]
+        env["UPSTREAM_TRANSPORT"] = "http"
+        
+        # Handle GitHub token for remote server
+        if upstream_config.get("use_input_prompt"):
+            # Use Claude Desktop input prompt (recommended)
+            env["UPSTREAM_HEADER_Authorization"] = "Bearer ${input:github_mcp_pat}"
+        elif upstream_config.get("github_token"):
+            # Use direct token (less secure, but works)
+            token = upstream_config["github_token"]
+            if not token.startswith("Bearer "):
+                token = f"Bearer {token}"
+            env["UPSTREAM_HEADER_Authorization"] = token
+    else:
+        # stdio transport (local server)
+        env["UPSTREAM_COMMAND"] = upstream_config["command"]
+        env["UPSTREAM_ARGS"] = ",".join(upstream_config["args"])
+        env["UPSTREAM_TRANSPORT"] = upstream_config["transport"]
+        
+        # Add GitHub token if provided
+        if upstream_config.get("github_token"):
+            env["GITHUB_PERSONAL_ACCESS_TOKEN"] = upstream_config["github_token"]
     
     # Slack configuration
     if slack_config.get("enabled"):
@@ -765,6 +851,17 @@ def generate_claude_config(project_dir: Path, venv_dir: Path, slack_config: Dict
             "env": env
         }
     }
+    
+    # Add inputs section for Claude Desktop if using input prompt for GitHub token
+    if upstream_config.get("transport") == "http" and upstream_config.get("use_input_prompt"):
+        config["inputs"] = [
+            {
+                "type": "promptString",
+                "id": "github_mcp_pat",
+                "description": "GitHub Personal Access Token",
+                "password": True
+            }
+        ]
 
     return config
 
@@ -785,6 +882,23 @@ def save_claude_config(config: Dict[str, Any], project_dir: Path) -> None:
     else:
         # Otherwise, wrap it
         output_config = {"mcpServers": config}
+    
+    # Handle inputs - they should be at the top level, not inside mcpServers
+    # If any server config has "inputs", extract and merge them
+    inputs_list = []
+    if "mcpServers" in output_config:
+        for server_name, server_config in output_config["mcpServers"].items():
+            if isinstance(server_config, dict) and "inputs" in server_config:
+                # Extract inputs from server config
+                server_inputs = server_config.pop("inputs")
+                # Merge into top-level inputs (avoid duplicates)
+                for inp in server_inputs:
+                    if inp not in inputs_list:
+                        inputs_list.append(inp)
+    
+    # Add inputs to top level if any were found
+    if inputs_list:
+        output_config["inputs"] = inputs_list
 
     with open(config_path, "w") as f:
         json.dump(output_config, f, indent=2)
@@ -1089,7 +1203,10 @@ def generate_server_name(upstream_config: Dict[str, Any], existing_config: Optio
     upstream_name = None
     
     # Check for known servers
-    if "github" in command or "github-mcp-server" in command:
+    # Check for remote GitHub server first (HTTP transport)
+    if upstream_config.get("transport") == "http" and "githubcopilot.com" in upstream_config.get("url", ""):
+        upstream_name = "github-remote"
+    elif "github" in command or "github-mcp-server" in command:
         upstream_name = "github"
     elif "filesystem" in command or "server-filesystem" in combined:
         upstream_name = "filesystem"
@@ -1185,7 +1302,7 @@ def main():
         else:
             mode = "add_server"
             print("\nAdding new MCP server configuration...")
-            print("(Skipping venv creation, dependency installation, and Slack setup)\n")
+            print("(Will check dependencies, but skipping venv creation and Slack setup)\n")
     
     if mode == "full":
         print("This wizard will guide you through setting up Cite-Before-Act MCP.\n")
@@ -1281,6 +1398,39 @@ def main():
             print_error("Virtual environment not found. Please run full setup first.")
             return 1
         
+        # Check if dependencies need updating (e.g., after git pull with new requirements)
+        print_step(1, 3, "Checking Dependencies")
+        missing_deps = []
+        required_deps = ["httpx", "fastmcp", "slack-sdk", "pydantic", "python-dotenv"]
+        
+        for dep in required_deps:
+            result = run_command(
+                [str(venv_python), "-m", "pip", "show", dep],
+                check=False
+            )
+            if result.returncode != 0:
+                missing_deps.append(dep)
+        
+        if missing_deps:
+            print_warning(f"Missing dependencies detected: {', '.join(missing_deps)}")
+            print("This can happen after updating the code (e.g., git pull) with new requirements.")
+            if prompt_yes_no("\nUpdate dependencies now?", default=True):
+                print("Updating dependencies...")
+                # Install/upgrade dependencies from requirements.txt
+                run_command(
+                    [str(venv_python), "-m", "pip", "install", "-r", str(project_dir / "requirements.txt")]
+                )
+                # Also reinstall the package in editable mode to pick up any code changes
+                run_command(
+                    [str(venv_python), "-m", "pip", "install", "--use-pep517", "-e", "."],
+                    cwd=project_dir
+                )
+                print_success("Dependencies updated")
+            else:
+                print_warning("Skipping dependency update. The new server configuration may not work without required packages.")
+        else:
+            print_success("All dependencies are installed")
+        
         # Load existing Slack config from .env if it exists
         slack_config = {"enabled": False}
         env_path = project_dir / ".env"
@@ -1298,11 +1448,11 @@ def main():
                         slack_config["user_id"] = line.split("=", 1)[1].strip()
         
         # Configure upstream server
-        print_step(1, 2, "Configuring Upstream MCP Server")
+        print_step(2, 3, "Configuring Upstream MCP Server")
         upstream_config = configure_upstream()
         
         # Generate configuration
-        print_step(2, 2, "Generating Configuration")
+        print_step(3, 3, "Generating Configuration")
         
         # Generate Claude Desktop config entry
         server_name = generate_server_name(upstream_config, existing_claude_config)

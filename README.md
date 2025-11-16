@@ -683,8 +683,24 @@ UPSTREAM_TRANSPORT=stdio
 
 **HTTP transport (remote server):**
 ```bash
-UPSTREAM_URL=http://localhost:3010
+UPSTREAM_URL=https://api.example.com/mcp/
 UPSTREAM_TRANSPORT=http
+UPSTREAM_HEADER_Authorization=Bearer your-token-here
+```
+
+**Multiple headers (comma-separated):**
+```bash
+UPSTREAM_URL=https://api.example.com/mcp/
+UPSTREAM_TRANSPORT=http
+UPSTREAM_HEADERS=Authorization:Bearer token, X-Custom-Header:value
+```
+
+**Individual header environment variables:**
+```bash
+UPSTREAM_URL=https://api.example.com/mcp/
+UPSTREAM_TRANSPORT=http
+UPSTREAM_HEADER_Authorization=Bearer your-token-here
+UPSTREAM_HEADER_X-Custom-Header=custom-value
 ```
 
 **SSE transport (server-sent events):**
@@ -697,13 +713,74 @@ UPSTREAM_TRANSPORT=sse
 
 This example demonstrates using Cite-Before-Act MCP with the [GitHub MCP Server](https://github.com/github/github-mcp-server) to require approval for mutating GitHub operations.
 
-### Quick Setup
+### Option 1: Remote GitHub MCP Server (HTTP Transport)
+
+This is the recommended approach for using the official GitHub MCP Server hosted at `https://api.githubcopilot.com/mcp/`.
+
+1. **Create GitHub Personal Access Token**: Get a token at https://github.com/settings/tokens with required scopes
+
+2. **Configure Claude Desktop**: Use the remote server configuration:
+
+```json
+{
+  "mcpServers": {
+    "cite-before-act-github-remote": {
+      "command": "/path/to/venv/bin/python",
+      "args": ["-m", "server.main", "--transport", "stdio"],
+      "env": {
+        "UPSTREAM_URL": "https://api.githubcopilot.com/mcp/",
+        "UPSTREAM_TRANSPORT": "http",
+        "UPSTREAM_HEADER_Authorization": "Bearer ${input:github_mcp_pat}",
+        "DETECTION_ENABLE_CONVENTION": "true",
+        "DETECTION_ENABLE_METADATA": "true",
+        "USE_LOCAL_APPROVAL": "true",
+        "USE_NATIVE_DIALOG": "true"
+      }
+    }
+  },
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "github_mcp_pat",
+      "description": "GitHub Personal Access Token",
+      "password": true
+    }
+  ]
+}
+```
+
+**Alternative (direct token in env):**
+```json
+{
+  "mcpServers": {
+    "cite-before-act-github-remote": {
+      "command": "/path/to/venv/bin/python",
+      "args": ["-m", "server.main", "--transport", "stdio"],
+      "env": {
+        "UPSTREAM_URL": "https://api.githubcopilot.com/mcp/",
+        "UPSTREAM_TRANSPORT": "http",
+        "UPSTREAM_AUTH_TOKEN": "ghp_your_token_here",
+        "DETECTION_ENABLE_CONVENTION": "true",
+        "DETECTION_ENABLE_METADATA": "true",
+        "USE_LOCAL_APPROVAL": "true",
+        "USE_NATIVE_DIALOG": "true"
+      }
+    }
+  }
+}
+```
+
+See [`claude_desktop_config.github.remote.example.json`](claude_desktop_config.github.remote.example.json) for the complete example.
+
+### Option 2: Local GitHub MCP Server (stdio Transport)
+
+If you prefer to run the GitHub MCP Server locally:
 
 1. **Install GitHub MCP Server**: Download from [GitHub Releases](https://github.com/github/github-mcp-server/releases) and add to PATH
 
 2. **Create GitHub Personal Access Token**: Get a token at https://github.com/settings/tokens with required scopes
 
-3. **Configure Claude Desktop**: Use the example configuration:
+3. **Configure Claude Desktop**: Use the local server configuration:
 
 ```json
 {
