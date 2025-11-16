@@ -535,41 +535,42 @@ def configure_upstream() -> Dict[str, Any]:
         print("\nThis will use a local GitHub MCP server binary.")
         print("\nNote: The remote GitHub MCP server requires OAuth authentication,")
         print("which is complex to set up. We recommend using the local server.")
-        print("\nYou'll need:")
-        print("1. GitHub MCP Server binary (download from https://github.com/github/github-mcp-server/releases)")
-        print("   Or use with npx: npx -y @modelcontextprotocol/server-github")
-        print("2. GitHub Personal Access Token (create at https://github.com/settings/tokens)")
+        print("\n📦 Installation options:")
+        print("  1. Docker (easiest, cross-platform):")
+        print("     docker run -i --rm ghcr.io/github/github-mcp-server")
+        print("  2. Download binary from: https://github.com/github/github-mcp-server/releases")
+        print("  3. Build from source with Go: go build ./cmd/github-mcp-server")
+        print("\nYou'll also need:")
+        print("  • GitHub Personal Access Token (create at https://github.com/settings/tokens)")
 
         # Check if github-mcp-server is in PATH
         import shutil
         github_mcp_path = shutil.which("github-mcp-server")
-
-        # Also check for node/npx
-        npx_path = shutil.which("npx")
+        docker_path = shutil.which("docker")
 
         if github_mcp_path:
             print_success(f"Found github-mcp-server at: {github_mcp_path}")
             default_command = "github-mcp-server"
-        elif npx_path:
-            print_success(f"Found npx at: {npx_path}")
-            print("You can use: npx -y @modelcontextprotocol/server-github")
-            default_command = "npx"
+        elif docker_path:
+            print_success(f"Found docker at: {docker_path}")
+            print("Recommend using Docker for easiest setup")
+            default_command = "docker"
         else:
-            print_warning("Neither github-mcp-server nor npx found in PATH")
+            print_warning("Neither github-mcp-server nor docker found in PATH")
             default_command = "github-mcp-server"
 
-        command_choice = prompt(f"Command to use (github-mcp-server/npx/custom path)", default_command)
+        command_choice = prompt(f"Command to use (github-mcp-server/docker/custom path)", default_command)
 
-        if command_choice == "npx":
-            command = "npx"
-            args = ["-y", "@modelcontextprotocol/server-github"]
+        if command_choice == "docker":
+            command = "docker"
+            args = ["run", "-i", "--rm", "ghcr.io/github/github-mcp-server"]
         elif command_choice == "github-mcp-server":
             command = "github-mcp-server"
-            args = ["stdio"]
+            args = []
         else:
             # Custom path
             command = command_choice
-            args = ["stdio"]
+            args = []
 
         # Get GitHub token
         print("\n📝 GitHub Personal Access Token:")
@@ -580,8 +581,8 @@ def configure_upstream() -> Dict[str, Any]:
         if not token:
             print_warning("No token provided. You'll need to set GITHUB_PERSONAL_ACCESS_TOKEN in your .env file")
 
-        # Optional: additional flags (only if not using npx)
-        if command != "npx":
+        # Optional: additional flags (only if not using docker)
+        if command != "docker":
             print("\nOptional GitHub MCP Server flags:")
             print("Common options: --read-only, --lockdown-mode, --dynamic-toolsets")
             additional_args_str = prompt("Additional arguments (comma-separated, or press Enter for none)", "")
