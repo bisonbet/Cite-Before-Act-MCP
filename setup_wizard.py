@@ -1374,7 +1374,31 @@ def main():
         server_name = generate_server_name(upstream_config, existing_claude_config)
         claude_config_entry = generate_claude_config(project_dir, venv_dir, slack_config, upstream_config)
         merged_config = merge_claude_config(existing_claude_config, claude_config_entry["cite-before-act"], server_name)
-        save_claude_config({"mcpServers": merged_config}, project_dir)
+        
+        # Extract inputs if present (they need to be at top level)
+        inputs_to_add = claude_config_entry.get("inputs", [])
+        
+        # Prepare final config with mcpServers and inputs
+        final_config = {"mcpServers": merged_config}
+        if inputs_to_add:
+            # Load full existing config to get inputs (if any)
+            existing_inputs = []
+            config_path = project_dir / "claude_desktop_config_generated.json"
+            if config_path.exists():
+                try:
+                    with open(config_path, "r") as f:
+                        existing_full_config = json.load(f)
+                        existing_inputs = existing_full_config.get("inputs", [])
+                except Exception:
+                    pass
+            
+            # Combine inputs, avoiding duplicates by ID
+            all_inputs = {inp["id"]: inp for inp in existing_inputs}
+            for inp in inputs_to_add:
+                all_inputs[inp["id"]] = inp
+            final_config["inputs"] = list(all_inputs.values())
+        
+        save_claude_config(final_config, project_dir)
 
         # Create ngrok policy if needed
         if ngrok_config and slack_config.get("signing_secret"):
@@ -1458,7 +1482,31 @@ def main():
         server_name = generate_server_name(upstream_config, existing_claude_config)
         claude_config_entry = generate_claude_config(project_dir, venv_dir, slack_config, upstream_config)
         merged_config = merge_claude_config(existing_claude_config, claude_config_entry["cite-before-act"], server_name)
-        save_claude_config({"mcpServers": merged_config}, project_dir)
+        
+        # Extract inputs if present (they need to be at top level)
+        inputs_to_add = claude_config_entry.get("inputs", [])
+        
+        # Prepare final config with mcpServers and inputs
+        final_config = {"mcpServers": merged_config}
+        if inputs_to_add:
+            # Load full existing config to get inputs (if any)
+            existing_inputs = []
+            config_path = project_dir / "claude_desktop_config_generated.json"
+            if config_path.exists():
+                try:
+                    with open(config_path, "r") as f:
+                        existing_full_config = json.load(f)
+                        existing_inputs = existing_full_config.get("inputs", [])
+                except Exception:
+                    pass
+            
+            # Combine inputs, avoiding duplicates by ID
+            all_inputs = {inp["id"]: inp for inp in existing_inputs}
+            for inp in inputs_to_add:
+                all_inputs[inp["id"]] = inp
+            final_config["inputs"] = list(all_inputs.values())
+        
+        save_claude_config(final_config, project_dir)
         
         print_success(f"Added new MCP server configuration: {server_name}")
         print(f"\n{Colors.BOLD}Next Steps:{Colors.END}")
