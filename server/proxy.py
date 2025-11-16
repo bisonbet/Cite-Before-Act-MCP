@@ -254,13 +254,14 @@ class ProxyServer:
 
         elif upstream_config.transport in ("http", "sse") and upstream_config.url:
             # HTTP/SSE transport for remote MCP servers
-            # For GitHub MCP server and similar remote servers, use SSE transport
-            # even if configured as "http" - they typically use SSE over HTTP
             actual_transport = upstream_config.transport
-            # Try HTTP POST first for GitHub MCP server (it may not support SSE)
             # Only use SSE if explicitly configured
             use_sse = actual_transport == "sse"
             is_github = "githubcopilot.com" in upstream_config.url
+            
+            debug_log("Connecting to upstream server: transport={}, url={}, use_sse={}, is_github={}", 
+                     actual_transport, upstream_config.url, use_sse, is_github)
+            debug_log("Upstream headers: {}", list(upstream_config.headers.keys()) if upstream_config.headers else "none")
             
             if use_sse:
                 # SSE transport: Proper implementation for MCP SSE servers
@@ -446,7 +447,8 @@ class ProxyServer:
                 }
                 
                 # Send initialize request to the exact URL provided
-                # For GitHub MCP server, if HTTP POST fails, we might need SSE
+                debug_log("Sending HTTP POST initialize request to: {}", base_url)
+                debug_log("Request headers: {}", {k: v[:20] + "..." if len(v) > 20 else v for k, v in headers.items()})
                 try:
                     response = await self.upstream_http_client.post(
                         base_url,
@@ -455,35 +457,41 @@ class ProxyServer:
                     )
                     response.raise_for_status()
                     init_response = response.json()
+                    debug_log("HTTP POST initialize successful")
                 except httpx.HTTPStatusError as e:
-                    # If we get 400/404 and it's GitHub MCP server, try SSE as fallback
-                    if e.response.status_code in (400, 404) and is_github and actual_transport == "http":
-                        debug_log("HTTP POST failed for GitHub MCP server, trying SSE transport")
-                        # Fall back to SSE - we'll need to restart the connection
-                        # For now, provide detailed error and suggest using SSE explicitly
-                        error_msg = f"HTTP POST failed for GitHub MCP server (Status: {e.response.status_code})"
-                        error_msg += f"\nThe GitHub MCP server remote may require SSE transport."
-                        error_msg += f"\nTry setting UPSTREAM_TRANSPORT=sse in your configuration."
-                        if e.response is not None:
-                            try:
-                                error_body = e.response.text[:500]
-                                if error_body:
-                                    error_msg += f"\nServer response: {error_body}"
-                            except Exception:
-                                pass
-                        raise RuntimeError(error_msg)
-                    else:
-                        # For other servers or explicit errors, provide details
-                        error_msg = f"Failed to connect to upstream server: {e}"
-                        if e.response is not None:
-                            error_msg += f"\nStatus: {e.response.status_code}"
-                            error_msg += f"\nURL: {base_url}"
-                            try:
-                                error_body = e.response.text[:500]
-                                error_msg += f"\nResponse: {error_body}"
-                            except Exception:
-                                pass
-                        raise RuntimeError(error_msg)
+                    # Log detailed error information
+                    error_msg = f"HTTP POST failed for upstream server (Status: {e.response.status_code})"
+                    error_msg += f"\nURL: {base_url}"
+                    if e.response is not None:
+                        try:
+                            error_body = e.response.text[:500]
+                            if error_body:
+                                error_msg += f"\nServer response: {error_body}"
+                        except Exception:
+                            pass
+                    
+                    # Check if Authorization header might be missing or malformed
+                    auth_header = headers.get("Authorization", "")
+                    debug_log("Authorization header value: {}", auth_header[:50] + "..." if len(auth_header) > 50 else auth_header)
+                    
+                    if not auth_header:
+                        error_msg += f"\n\nERROR: Authorization header is completely missing!"
+                        error_msg += f"\nMake sure UPSTREAM_HEADER_Authorization is set in your Claude Desktop config."
+                    elif auth_header.startswith("Bearer ${input:"):
+                        error_msg += f"\n\nERROR: Authorization header was NOT substituted by Claude Desktop!"
+                        error_msg += f"\nCurrent value: {auth_header}"
+                        error_msg += f"\n\nThis means Claude Desktop did not prompt for the token."
+                        error_msg += f"\nPossible causes:"
+                        error_msg += f"\n  1. The 'inputs' section might be in the wrong place (must be at top level)"
+                        error_msg += f"\n  2. The input ID 'github_mcp_pat' doesn't match the reference in the env var"
+                        error_msg += f"\n  3. Claude Desktop needs to be restarted after adding the inputs section"
+                    elif not auth_header.startswith("Bearer "):
+                        error_msg += f"\n\nWARNING: Authorization header format may be incorrect."
+                        error_msg += f"\nExpected format: 'Bearer <token>'"
+                        error_msg += f"\nCurrent value: {auth_header[:50]}..."
+                    
+                    debug_log("HTTP POST error: {}", error_msg)
+                    raise RuntimeError(error_msg)
                 except httpx.HTTPError as e:
                     error_msg = f"Failed to connect to upstream server: {e}"
                     if hasattr(e, 'response') and e.response is not None:
