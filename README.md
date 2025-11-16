@@ -688,6 +688,15 @@ UPSTREAM_TRANSPORT=http
 UPSTREAM_HEADER_Authorization=Bearer your-token-here
 ```
 
+**SSE transport (Server-Sent Events - for modern MCP servers):**
+```bash
+UPSTREAM_URL=https://api.example.com/mcp/
+UPSTREAM_TRANSPORT=sse
+UPSTREAM_HEADER_Authorization=Bearer your-token-here
+```
+
+**Note:** GitHub MCP server remote (`api.githubcopilot.com`) automatically uses SSE transport even if configured as `http`. You can use either `http` or `sse` - both work.
+
 **Multiple headers (comma-separated):**
 ```bash
 UPSTREAM_URL=https://api.example.com/mcp/
