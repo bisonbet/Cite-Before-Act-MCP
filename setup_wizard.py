@@ -651,12 +651,46 @@ def configure_upstream() -> Dict[str, Any]:
 
 
 def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], upstream_config: Dict[str, Any]) -> None:
-    """Generate .env file."""
+    """Generate .env file.
+
+    If .env exists and has a GitHub token set, we'll add a section for the new server
+    If .env doesn't exist or you confirm overwrite, regenerates the entire file.
+    """
     env_path = project_dir / ".env"
 
+    # Check if .env exists and has required tokens
     if env_path.exists():
-        if not prompt_yes_no(f"\n.env file already exists. Overwrite?", default=False):
-            print_warning("Skipping .env generation")
+        # Check if GitHub token is already set
+        has_github_token = False
+        try:
+            with open(env_path, "r") as f:
+                content = f.read()
+                # Check if GITHUB_PERSONAL_ACCESS_TOKEN has a value (not empty)
+                for line in content.split("\n"):
+                    if line.startswith("GITHUB_PERSONAL_ACCESS_TOKEN=") and "=" in line:
+                        value = line.split("=", 1)[1].strip()
+                        if value:  # Has a non-empty value
+                            has_github_token = True
+                            break
+        except Exception:
+            pass
+
+        # If adding GitHub server and token not in .env, append it
+        if upstream_config.get("github_token") and not has_github_token:
+            print(f"\nAdding GitHub token to existing .env file...")
+            try:
+                with open(env_path, "a") as f:
+                    f.write("\n# GitHub Personal Access Token (automatically used by server)\n")
+                    f.write("# The server reads this and adds 'Authorization: Bearer <token>' header\n")
+                    f.write(f"GITHUB_PERSONAL_ACCESS_TOKEN={upstream_config['github_token']}\n")
+                print_success(f"Added GitHub token to .env file: {env_path}")
+                return
+            except Exception as e:
+                print_error(f"Could not append to .env: {e}")
+
+        # Otherwise ask if they want to overwrite
+        if not prompt_yes_no(f"\n.env file already exists. Regenerate entire file?", default=False):
+            print_warning("Keeping existing .env file. You may need to manually add configuration.")
             return
 
     print("\nGenerating .env file...")
