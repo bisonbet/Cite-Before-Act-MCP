@@ -809,15 +809,15 @@ def generate_claude_config(project_dir: Path, venv_dir: Path, slack_config: Dict
         # config/settings.py automatically loads it and passes to upstream server
     
     # Slack configuration
+    # Note: SLACK_BOT_TOKEN is loaded from .env file, not from Claude Desktop config
     if slack_config.get("enabled"):
         env["ENABLE_SLACK"] = "true"
-        env["SLACK_BOT_TOKEN"] = slack_config.get("bot_token", "")
-        
+
         if slack_config.get("channel"):
             env["SLACK_CHANNEL"] = slack_config["channel"]
         elif slack_config.get("user_id"):
             env["SLACK_USER_ID"] = slack_config["user_id"]
-        
+
         # When Slack is enabled, disable native dialog to avoid duplicates
         env["USE_NATIVE_DIALOG"] = "false"
     else:
