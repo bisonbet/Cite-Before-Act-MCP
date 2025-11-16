@@ -593,6 +593,86 @@ DEBUG=true
 
 **Note:** Debug logs are written to `stderr` and will appear in Claude Desktop's logs. They do not affect normal operation when disabled.
 
+### Managing Secrets with .env Files
+
+**Recommended Approach:** Store all sensitive tokens and secrets in a `.env` file instead of directly in your Claude Desktop configuration. This approach:
+
+- ✅ **Works across different operating systems** (no OS-specific issues)
+- ✅ **Keeps secrets out of config files** (better security)
+- ✅ **Easy to manage** (one file for all secrets)
+- ✅ **Automatically loaded** by the server using `python-dotenv`
+
+**Setup:**
+
+1. **Copy the example file:**
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Edit `.env` and add your secrets:**
+   ```bash
+   # GitHub Personal Access Token (for GitHub MCP Server)
+   GITHUB_PERSONAL_ACCESS_TOKEN=ghp_your_token_here
+
+   # Slack Bot Token (if using Slack integration)
+   SLACK_BOT_TOKEN=xoxb-your-token-here
+   SLACK_CHANNEL=#approvals
+   ```
+
+3. **The server automatically loads these values** when it starts - no need to add them to Claude Desktop config!
+
+**How it works:**
+
+- The `.env` file is loaded by [`config/settings.py`](config/settings.py#L15) using `python-dotenv`
+- The server uses an **absolute path** to find `.env` in the project root, so it works regardless of which directory the MCP client launches from
+- Tokens are automatically applied:
+  - `GITHUB_PERSONAL_ACCESS_TOKEN` → Automatically added as `Authorization: Bearer <token>` header for GitHub MCP
+  - `SLACK_BOT_TOKEN` → Used for Slack integration
+  - `UPSTREAM_AUTH_TOKEN` → Generic auth token for other upstream servers (auto-formatted as `Bearer <token>`)
+
+**Example `.env` file:**
+```bash
+# Secrets
+GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+SLACK_BOT_TOKEN=xoxb-your-token-here
+
+# Upstream Server
+UPSTREAM_URL=https://api.githubcopilot.com/mcp/
+UPSTREAM_TRANSPORT=http
+
+# Detection Settings
+DETECTION_ALLOWLIST=
+DETECTION_BLOCKLIST=read_file,get_file,list_files,search_code
+
+# Approval Settings
+APPROVAL_TIMEOUT_SECONDS=300
+USE_LOCAL_APPROVAL=true
+ENABLE_SLACK=true
+```
+
+**Claude Desktop config (no secrets!):**
+```json
+{
+  "mcpServers": {
+    "github-remote-cite": {
+      "command": "/path/to/.venv/bin/python",
+      "args": ["-m", "server.main", "--transport", "stdio"],
+      "env": {
+        "UPSTREAM_URL": "https://api.githubcopilot.com/mcp/",
+        "UPSTREAM_TRANSPORT": "http",
+        "DETECTION_ALLOWLIST": "",
+        "DETECTION_BLOCKLIST": "read_file,get_file,list_files",
+        "USE_LOCAL_APPROVAL": "true"
+      }
+    }
+  }
+}
+```
+
+**Note:**
+- You can set configuration in either `.env` or Claude Desktop's `env` section. Values in Claude Desktop's config take precedence, but using `.env` for secrets is recommended.
+- The `.env` file **must be in the project root** (same directory as `.env.example`). The server automatically finds it using an absolute path, so it works regardless of which directory any MCP client launches the server from.
+
 ### Environment Variables
 
 See [`.env.example`](.env.example) for complete documentation. Key variables:
@@ -607,6 +687,7 @@ ENABLE_SLACK=true               # Enable Slack (requires token, disables native 
 
 **Slack Configuration:**
 ```bash
+# Add these to your .env file (recommended) or Claude Desktop config
 SLACK_BOT_TOKEN=xoxb-...        # Bot token (required for Slack)
 SLACK_CHANNEL=#approvals        # Channel name or ID
 SLACK_USER_ID=U1234567890       # For DMs instead of channel

@@ -1,14 +1,18 @@
 """Configuration management for Cite-Before-Act MCP."""
 
 import os
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from .env file in project root
+# This ensures .env is found regardless of the current working directory
+_project_root = Path(__file__).parent.parent
+_env_path = _project_root / ".env"
+load_dotenv(_env_path)
 
 
 class SlackConfig(BaseModel):

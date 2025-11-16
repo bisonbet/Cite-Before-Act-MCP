@@ -560,22 +560,14 @@ def configure_upstream() -> Dict[str, Any]:
             print("   (Or use minimal scopes needed for your use case)")
             
             token = prompt("\nGitHub Personal Access Token", "")
-            
+
             if not token:
-                print_warning("No token provided. You'll need to set UPSTREAM_AUTH_TOKEN or UPSTREAM_HEADER_Authorization")
-                token = ""
-            
-            # Ask if they want to use Claude Desktop input prompt for token
-            use_input_prompt = prompt_yes_no(
-                "\nUse Claude Desktop input prompt for token? (recommended for security)",
-                default=True
-            )
-            
+                print_warning("No token provided. You'll need to set GITHUB_PERSONAL_ACCESS_TOKEN in your .env file")
+
             config = {
                 "url": "https://api.githubcopilot.com/mcp/",
                 "transport": "http",
-                "github_token": token,
-                "use_input_prompt": use_input_prompt
+                "github_token": token  # This will be saved to .env only
             }
             
             return config
@@ -711,13 +703,13 @@ def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], upstream_
         lines.append(f"UPSTREAM_URL={upstream_config['url']}")
         lines.append(f"UPSTREAM_TRANSPORT=http")
         lines.append("")
-        
-        # Add GitHub token if provided (for .env file, not Claude Desktop config)
+
+        # Add GitHub token if provided
         if upstream_config.get("github_token"):
             lines.extend([
-                "# GitHub MCP Server Configuration",
-                "# Note: For Claude Desktop, use UPSTREAM_HEADER_Authorization or UPSTREAM_AUTH_TOKEN",
-                f"UPSTREAM_AUTH_TOKEN={upstream_config['github_token']}",
+                "# GitHub Personal Access Token (automatically used by server)",
+                "# The server reads this and adds 'Authorization: Bearer <token>' header",
+                f"GITHUB_PERSONAL_ACCESS_TOKEN={upstream_config['github_token']}",
                 "",
             ])
     else:
@@ -726,11 +718,11 @@ def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], upstream_
         lines.append(f"UPSTREAM_ARGS={','.join(upstream_config['args'])}")
         lines.append(f"UPSTREAM_TRANSPORT={upstream_config['transport']}")
         lines.append("")
-        
+
         # Add GitHub token if provided
         if upstream_config.get("github_token"):
             lines.extend([
-                "# GitHub MCP Server Configuration",
+                "# GitHub Personal Access Token (passed to upstream server via env)",
                 f"GITHUB_PERSONAL_ACCESS_TOKEN={upstream_config['github_token']}",
                 "",
             ])
@@ -806,26 +798,15 @@ def generate_claude_config(project_dir: Path, venv_dir: Path, slack_config: Dict
         # HTTP transport (remote server)
         env["UPSTREAM_URL"] = upstream_config["url"]
         env["UPSTREAM_TRANSPORT"] = "http"
-        
-        # Handle GitHub token for remote server
-        if upstream_config.get("use_input_prompt"):
-            # Use Claude Desktop input prompt (recommended)
-            env["UPSTREAM_HEADER_Authorization"] = "Bearer ${input:github_mcp_pat}"
-        elif upstream_config.get("github_token"):
-            # Use direct token (less secure, but works)
-            token = upstream_config["github_token"]
-            if not token.startswith("Bearer "):
-                token = f"Bearer {token}"
-            env["UPSTREAM_HEADER_Authorization"] = token
+        # Note: Token is read from .env file (GITHUB_PERSONAL_ACCESS_TOKEN or UPSTREAM_AUTH_TOKEN)
+        # config/settings.py automatically loads it and adds Authorization header
     else:
         # stdio transport (local server)
         env["UPSTREAM_COMMAND"] = upstream_config["command"]
         env["UPSTREAM_ARGS"] = ",".join(upstream_config["args"])
         env["UPSTREAM_TRANSPORT"] = upstream_config["transport"]
-        
-        # Add GitHub token if provided
-        if upstream_config.get("github_token"):
-            env["GITHUB_PERSONAL_ACCESS_TOKEN"] = upstream_config["github_token"]
+        # Note: Token is read from .env file (GITHUB_PERSONAL_ACCESS_TOKEN)
+        # config/settings.py automatically loads it and passes to upstream server
     
     # Slack configuration
     if slack_config.get("enabled"):
@@ -851,17 +832,6 @@ def generate_claude_config(project_dir: Path, venv_dir: Path, slack_config: Dict
             "env": env
         }
     }
-    
-    # Add inputs section for Claude Desktop if using input prompt for GitHub token
-    if upstream_config.get("transport") == "http" and upstream_config.get("use_input_prompt"):
-        config["inputs"] = [
-            {
-                "type": "promptString",
-                "id": "github_mcp_pat",
-                "description": "GitHub Personal Access Token",
-                "password": True
-            }
-        ]
 
     return config
 
@@ -883,22 +853,8 @@ def save_claude_config(config: Dict[str, Any], project_dir: Path) -> None:
         # Otherwise, wrap it
         output_config = {"mcpServers": config}
     
-    # Handle inputs - they should be at the top level, not inside mcpServers
-    # If any server config has "inputs", extract and merge them
-    inputs_list = []
-    if "mcpServers" in output_config:
-        for server_name, server_config in output_config["mcpServers"].items():
-            if isinstance(server_config, dict) and "inputs" in server_config:
-                # Extract inputs from server config
-                server_inputs = server_config.pop("inputs")
-                # Merge into top-level inputs (avoid duplicates)
-                for inp in server_inputs:
-                    if inp not in inputs_list:
-                        inputs_list.append(inp)
-    
-    # Add inputs to top level if any were found
-    if inputs_list:
-        output_config["inputs"] = inputs_list
+    # Note: We no longer use Claude Desktop's "inputs" feature for tokens.
+    # All secrets are stored in .env file and loaded by python-dotenv.
 
     with open(config_path, "w") as f:
         json.dump(output_config, f, indent=2)
@@ -1374,30 +1330,9 @@ def main():
         server_name = generate_server_name(upstream_config, existing_claude_config)
         claude_config_entry = generate_claude_config(project_dir, venv_dir, slack_config, upstream_config)
         merged_config = merge_claude_config(existing_claude_config, claude_config_entry["cite-before-act"], server_name)
-        
-        # Extract inputs if present (they need to be at top level)
-        inputs_to_add = claude_config_entry.get("inputs", [])
-        
-        # Prepare final config with mcpServers and inputs
+
+        # Save config (all secrets now in .env, not in Claude Desktop config)
         final_config = {"mcpServers": merged_config}
-        if inputs_to_add:
-            # Load full existing config to get inputs (if any)
-            existing_inputs = []
-            config_path = project_dir / "claude_desktop_config_generated.json"
-            if config_path.exists():
-                try:
-                    with open(config_path, "r") as f:
-                        existing_full_config = json.load(f)
-                        existing_inputs = existing_full_config.get("inputs", [])
-                except Exception:
-                    pass
-            
-            # Combine inputs, avoiding duplicates by ID
-            all_inputs = {inp["id"]: inp for inp in existing_inputs}
-            for inp in inputs_to_add:
-                all_inputs[inp["id"]] = inp
-            final_config["inputs"] = list(all_inputs.values())
-        
         save_claude_config(final_config, project_dir)
 
         # Create ngrok policy if needed
@@ -1482,30 +1417,9 @@ def main():
         server_name = generate_server_name(upstream_config, existing_claude_config)
         claude_config_entry = generate_claude_config(project_dir, venv_dir, slack_config, upstream_config)
         merged_config = merge_claude_config(existing_claude_config, claude_config_entry["cite-before-act"], server_name)
-        
-        # Extract inputs if present (they need to be at top level)
-        inputs_to_add = claude_config_entry.get("inputs", [])
-        
-        # Prepare final config with mcpServers and inputs
+
+        # Save config (all secrets now in .env, not in Claude Desktop config)
         final_config = {"mcpServers": merged_config}
-        if inputs_to_add:
-            # Load full existing config to get inputs (if any)
-            existing_inputs = []
-            config_path = project_dir / "claude_desktop_config_generated.json"
-            if config_path.exists():
-                try:
-                    with open(config_path, "r") as f:
-                        existing_full_config = json.load(f)
-                        existing_inputs = existing_full_config.get("inputs", [])
-                except Exception:
-                    pass
-            
-            # Combine inputs, avoiding duplicates by ID
-            all_inputs = {inp["id"]: inp for inp in existing_inputs}
-            for inp in inputs_to_add:
-                all_inputs[inp["id"]] = inp
-            final_config["inputs"] = list(all_inputs.values())
-        
         save_claude_config(final_config, project_dir)
         
         print_success(f"Added new MCP server configuration: {server_name}")
