@@ -18,7 +18,7 @@
         "DETECTION_ENABLE_METADATA": "true",
         "APPROVAL_TIMEOUT_SECONDS": "300",
         "USE_LOCAL_APPROVAL": "true",
-        "USE_NATIVE_DIALOG": "true",
+        "USE_GUI_APPROVAL": "true",
         "ENABLE_SLACK": "false"
       }
     }

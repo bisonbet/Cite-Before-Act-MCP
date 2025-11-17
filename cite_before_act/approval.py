@@ -193,7 +193,7 @@ class ApprovalManager:
                 # Create local approval handler
                 # Use native dialogs on macOS/Windows, file-based on Linux
                 # If Slack is configured, disable native dialogs but keep file-based logging
-                use_native = os.getenv("USE_NATIVE_DIALOG", "true").lower() == "true"
+                use_native = os.getenv("USE_GUI_APPROVAL", "true").lower() == "true"
                 if self.slack_client:
                     # When Slack is enabled, skip native popup but keep CLI logging
                     use_native = False

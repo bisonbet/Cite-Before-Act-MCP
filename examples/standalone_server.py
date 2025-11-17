@@ -6,7 +6,7 @@ to wrap the official MCP Filesystem Server.
 
 # Example .env file configuration:
 """
-# Slack Configuration
+# Slack Configuration (Optional)
 SLACK_BOT_TOKEN=xoxb-your-token-here
 SLACK_CHANNEL=#approvals
 # SLACK_USER_ID=U1234567890  # Optional: for DMs instead of channel
@@ -27,9 +27,21 @@ UPSTREAM_TRANSPORT=stdio
 # UPSTREAM_URL=http://localhost:3010
 # UPSTREAM_TRANSPORT=http
 
+# Option 3: SSE transport (Server-Sent Events)
+# UPSTREAM_URL=http://localhost:3010/sse
+# UPSTREAM_TRANSPORT=sse
+
+# Upstream Server Headers (for HTTP/SSE with authentication)
+# UPSTREAM_HEADERS=Authorization:Bearer token123,X-Custom-Header:value
+# Or use individual header variables:
+# UPSTREAM_HEADER_Authorization=Bearer token123
+# UPSTREAM_AUTH_TOKEN=token123  # Automatically adds Authorization: Bearer token123
+
 # Approval Settings
 APPROVAL_TIMEOUT_SECONDS=300
 ENABLE_SLACK=true
+USE_LOCAL_APPROVAL=true
+USE_GUI_APPROVAL=true  # Use native OS dialogs (macOS/Windows)
 """
 
 # To run the server:

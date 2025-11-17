@@ -302,7 +302,7 @@ cd ~/mcp-test-workspace && pwd  # Copy this absolute path
         "UPSTREAM_ARGS": "-y,@modelcontextprotocol/server-filesystem,/Users/yourname/mcp-test-workspace",
         "UPSTREAM_TRANSPORT": "stdio",
         "USE_LOCAL_APPROVAL": "true",
-        "USE_NATIVE_DIALOG": "true"
+        "USE_GUI_APPROVAL": "true"
       }
     }
   }
@@ -650,7 +650,7 @@ python examples/slack_webhook_server.py
 **Approval methods work intelligently based on configuration:**
 
 **When Slack is NOT enabled:**
-1. **Native OS dialog** appears (macOS/Windows) - if `USE_NATIVE_DIALOG=true`
+1. **Native OS dialog** appears (macOS/Windows) - if `USE_GUI_APPROVAL=true`
 2. **File-based instructions** printed to logs (always enabled)
 3. **Any method can approve** - whichever responds first wins!
 
@@ -663,7 +663,7 @@ python examples/slack_webhook_server.py
 **Configuration:**
 ```bash
 USE_LOCAL_APPROVAL=true       # Default: true - enables file-based logging
-USE_NATIVE_DIALOG=true        # Default: true (macOS/Windows only, auto-disabled if Slack enabled)
+USE_GUI_APPROVAL=true        # Default: true (macOS/Windows only, auto-disabled if Slack enabled)
 ENABLE_SLACK=true             # Default: true (requires SLACK_BOT_TOKEN)
 APPROVAL_TIMEOUT_SECONDS=300  # Default: 300 (5 minutes)
 ```
@@ -749,7 +749,7 @@ SLACK_CHANNEL=#approvals
 # Approval Settings
 APPROVAL_TIMEOUT_SECONDS=300
 USE_LOCAL_APPROVAL=true
-USE_NATIVE_DIALOG=false  # Disabled when Slack is enabled
+USE_GUI_APPROVAL=false  # Disabled when Slack is enabled
 
 # Detection Defaults
 DETECTION_ENABLE_CONVENTION=true
@@ -880,7 +880,7 @@ UPSTREAM_AUTH_TOKEN=...               # Generic auth token (secret)
 ```bash
 APPROVAL_TIMEOUT_SECONDS=300    # Timeout in seconds
 USE_LOCAL_APPROVAL=true         # Enable local approval (GUI/file-based)
-USE_NATIVE_DIALOG=true          # Use native OS dialogs (auto-disabled if Slack enabled)
+USE_GUI_APPROVAL=true          # Use native OS dialogs (auto-disabled if Slack enabled)
 ENABLE_SLACK=true               # Enable Slack (requires token, disables native dialogs)
 ```
 
@@ -1058,7 +1058,7 @@ This is the recommended approach for using the official GitHub MCP Server hosted
         "DETECTION_ENABLE_CONVENTION": "true",
         "DETECTION_ENABLE_METADATA": "true",
         "USE_LOCAL_APPROVAL": "true",
-        "USE_NATIVE_DIALOG": "true"
+        "USE_GUI_APPROVAL": "true"
       }
     }
   },
@@ -1087,7 +1087,7 @@ This is the recommended approach for using the official GitHub MCP Server hosted
         "DETECTION_ENABLE_CONVENTION": "true",
         "DETECTION_ENABLE_METADATA": "true",
         "USE_LOCAL_APPROVAL": "true",
-        "USE_NATIVE_DIALOG": "true"
+        "USE_GUI_APPROVAL": "true"
       }
     }
   }
@@ -1120,7 +1120,7 @@ If you prefer to run the GitHub MCP Server locally:
         "DETECTION_ENABLE_CONVENTION": "true",
         "DETECTION_ENABLE_METADATA": "true",
         "USE_LOCAL_APPROVAL": "true",
-        "USE_NATIVE_DIALOG": "true"
+        "USE_GUI_APPROVAL": "true"
       }
     }
   }

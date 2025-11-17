@@ -97,7 +97,7 @@ class ProxyServer:
             # Native dialogs use osascript (macOS) or PowerShell (Windows)
             # These work even in stdio MCP mode because they run as separate processes
             # If Slack is configured, disable native dialogs but keep file-based logging
-            use_native = os.getenv("USE_NATIVE_DIALOG", "true").lower() == "true"
+            use_native = self.settings.use_gui_approval
             if slack_configured:
                 # When Slack is enabled, skip native popup but keep CLI logging
                 use_native = False

@@ -757,11 +757,11 @@ def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], upstream_
         "USE_LOCAL_APPROVAL=true",
     ])
 
-    # Set USE_NATIVE_DIALOG based on Slack being enabled
+    # Set USE_GUI_APPROVAL based on Slack being enabled
     if slack_config["enabled"]:
-        lines.append("USE_NATIVE_DIALOG=false  # Disabled when Slack is enabled")
+        lines.append("USE_GUI_APPROVAL=false  # Disabled when Slack is enabled")
     else:
-        lines.append("USE_NATIVE_DIALOG=true   # Enabled when Slack is disabled")
+        lines.append("USE_GUI_APPROVAL=true   # Enabled when Slack is disabled")
 
     # Global detection defaults
     lines.extend([
@@ -833,7 +833,7 @@ def generate_claude_config(project_dir: Path, venv_dir: Path, slack_config: Dict
         # config/settings.py automatically loads it and passes to upstream server
 
     # Note: Global settings like ENABLE_SLACK, SLACK_CHANNEL, USE_LOCAL_APPROVAL,
-    # USE_NATIVE_DIALOG, APPROVAL_TIMEOUT_SECONDS are loaded from .env file.
+    # USE_GUI_APPROVAL, APPROVAL_TIMEOUT_SECONDS are loaded from .env file.
     # They apply to all servers and can be overridden per-server if needed by
     # adding them to this env dict.
 
