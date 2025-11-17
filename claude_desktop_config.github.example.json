@@ -22,7 +22,7 @@
         "APPROVAL_TIMEOUT_SECONDS": "300",
         "ENABLE_SLACK": "true",
         "USE_LOCAL_APPROVAL": "true",
-        "USE_NATIVE_DIALOG": "false"
+        "USE_GUI_APPROVAL": "false"
       }
     }
   }

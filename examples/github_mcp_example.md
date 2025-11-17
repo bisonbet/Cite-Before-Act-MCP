@@ -42,7 +42,7 @@ Copy [`claude_desktop_config.github.example.json`](../claude_desktop_config.gith
         "DETECTION_ENABLE_CONVENTION": "true",
         "DETECTION_ENABLE_METADATA": "true",
         "USE_LOCAL_APPROVAL": "true",
-        "USE_NATIVE_DIALOG": "true"
+        "USE_GUI_APPROVAL": "true"
       }
     }
   }
@@ -73,7 +73,7 @@ DETECTION_BLOCKLIST=read_file,get_file,list_files,search_code,get_issue,list_iss
 # Approval Settings
 APPROVAL_TIMEOUT_SECONDS=300
 USE_LOCAL_APPROVAL=true
-USE_NATIVE_DIALOG=true
+USE_GUI_APPROVAL=true
 ```
 
 ## What Gets Detected
