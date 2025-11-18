@@ -15,6 +15,21 @@ from cite_before_act.slack.client import SlackClient
 from cite_before_act.slack.handlers import SlackHandler
 from cite_before_act.local_approval import LocalApproval
 
+# Optional platform imports
+try:
+    from cite_before_act.webex.client import WebexClient
+    from cite_before_act.webex.handlers import WebexHandler
+except ImportError:
+    WebexClient = None
+    WebexHandler = None
+
+try:
+    from cite_before_act.teams.client import TeamsClient
+    from cite_before_act.teams.handlers import TeamsHandler
+except ImportError:
+    TeamsClient = None
+    TeamsHandler = None
+
 
 class ApprovalStatus(Enum):
     """Status of an approval request."""
@@ -96,12 +111,16 @@ class ApprovalRequest:
 
 
 class ApprovalManager:
-    """Manages approval workflow state and integrates with Slack."""
+    """Manages approval workflow state and integrates with multiple platforms."""
 
     def __init__(
         self,
         slack_client: Optional[SlackClient] = None,
         slack_handler: Optional[SlackHandler] = None,
+        webex_client: Optional["WebexClient"] = None,
+        webex_handler: Optional["WebexHandler"] = None,
+        teams_client: Optional["TeamsClient"] = None,
+        teams_handler: Optional["TeamsHandler"] = None,
         local_approval: Optional[LocalApproval] = None,
         default_timeout_seconds: int = 300,
         use_local_fallback: bool = True,
@@ -111,22 +130,25 @@ class ApprovalManager:
         Args:
             slack_client: Optional Slack client for sending approval requests
             slack_handler: Optional Slack handler for receiving responses
+            webex_client: Optional Webex client for sending approval requests
+            webex_handler: Optional Webex handler for receiving responses
+            teams_client: Optional Teams client for sending approval requests
+            teams_handler: Optional Teams handler for receiving responses
             local_approval: Optional local approval handler (CLI/GUI)
             default_timeout_seconds: Default timeout for approval requests
-            use_local_fallback: If True, use local approval if Slack fails or isn't configured
+            use_local_fallback: If True, use local approval if platforms fail or aren't configured
         """
         self.slack_client = slack_client
         self.slack_handler = slack_handler
+        self.webex_client = webex_client
+        self.webex_handler = webex_handler
+        self.teams_client = teams_client
+        self.teams_handler = teams_handler
         self.local_approval = local_approval
         self.use_local_fallback = use_local_fallback
         self.default_timeout_seconds = default_timeout_seconds
         self._pending_approvals: Dict[str, ApprovalRequest] = {}
         self._cleanup_task: Optional[asyncio.Task] = None
-
-        # Register handler callback if available
-        if self.slack_handler:
-            # We'll register callbacks per-request, but set up the handler
-            pass
 
     async def request_approval(
         self,
@@ -160,8 +182,10 @@ class ApprovalManager:
 
         self._pending_approvals[approval_id] = request
 
+        # Track if any platform sent successfully
+        any_platform_sent = False
+
         # Send Slack message if client available
-        slack_sent = False
         if self.slack_client:
             try:
                 self.slack_client.send_approval_request(
@@ -170,7 +194,7 @@ class ApprovalManager:
                     description=description,
                     arguments=arguments,
                 )
-                slack_sent = True
+                any_platform_sent = True
 
                 # Register callback with handler
                 if self.slack_handler:
@@ -179,23 +203,64 @@ class ApprovalManager:
                         lambda aid, approved: self._handle_approval_response(aid, approved),
                     )
             except Exception as e:
-                # Log error but continue
                 print(f"Error sending Slack approval request: {e}", file=sys.stderr)
-                slack_sent = False
+
+        # Send Webex message if client available
+        if self.webex_client:
+            try:
+                self.webex_client.send_approval_request(
+                    approval_id=approval_id,
+                    tool_name=tool_name,
+                    description=description,
+                    arguments=arguments,
+                )
+                any_platform_sent = True
+
+                # Register callback with handler
+                if self.webex_handler:
+                    self.webex_handler.register_approval_callback(
+                        approval_id,
+                        lambda aid, approved: self._handle_approval_response(aid, approved),
+                    )
+            except Exception as e:
+                print(f"Error sending Webex approval request: {e}", file=sys.stderr)
+
+        # Send Teams message if client available
+        if self.teams_client:
+            try:
+                # Teams requires async send
+                asyncio.create_task(
+                    self.teams_client.send_approval_request(
+                        approval_id=approval_id,
+                        tool_name=tool_name,
+                        description=description,
+                        arguments=arguments,
+                    )
+                )
+                any_platform_sent = True
+
+                # Register callback with handler
+                if self.teams_handler:
+                    self.teams_handler.register_approval_callback(
+                        approval_id,
+                        lambda aid, approved: self._handle_approval_response(aid, approved),
+                    )
+            except Exception as e:
+                print(f"Error sending Teams approval request: {e}", file=sys.stderr)
 
         # Always use local approval in parallel (not just as fallback)
         # This enables multiple approval methods simultaneously:
-        # - Slack notifications (if configured)
+        # - Platform notifications (Slack/Webex/Teams if configured)
         # - Native OS dialogs (macOS/Windows)
         # - File-based approval (all platforms, shown in logs)
         if self.use_local_fallback:
             if not self.local_approval:
                 # Create local approval handler
                 # Use native dialogs on macOS/Windows, file-based on Linux
-                # If Slack is configured, disable native dialogs but keep file-based logging
+                # If any platform is configured, disable native dialogs but keep file-based logging
                 use_native = os.getenv("USE_GUI_APPROVAL", "true").lower() == "true"
-                if self.slack_client:
-                    # When Slack is enabled, skip native popup but keep CLI logging
+                if any_platform_sent:
+                    # When any platform is enabled, skip native popup but keep CLI logging
                     use_native = False
                 self.local_approval = LocalApproval(
                     use_native_dialog=use_native,
@@ -297,9 +362,13 @@ class ApprovalManager:
             request.resolve(False)
         self._pending_approvals.pop(approval_id, None)
 
-        # Unregister callback
+        # Unregister callbacks from all platforms
         if self.slack_handler:
-            self.slack_handler.unregister_approval_callback(approval_id)
+            self.slack_handler.unregister_callback(approval_id)
+        if self.webex_handler:
+            self.webex_handler.unregister_callback(approval_id)
+        if self.teams_handler:
+            self.teams_handler.unregister_callback(approval_id)
 
     async def _cleanup_expired_approvals(self) -> None:
         """Background task to clean up expired approvals and check for file-based responses."""
@@ -334,34 +403,48 @@ class ApprovalManager:
         """Remove an expired approval after a delay."""
         await asyncio.sleep(60)  # Keep for a bit in case we need to check status
         self._pending_approvals.pop(approval_id, None)
+
+        # Unregister from all platform handlers
         if self.slack_handler:
-            self.slack_handler.unregister_approval_callback(approval_id)
+            self.slack_handler.unregister_callback(approval_id)
+        if self.webex_handler:
+            self.webex_handler.unregister_callback(approval_id)
+        if self.teams_handler:
+            self.teams_handler.unregister_callback(approval_id)
     
     async def _check_file_based_approvals(self) -> None:
         """Check for approval responses written by the webhook server."""
-        approval_files = glob.glob("/tmp/cite-before-act-slack-approval-*.json")
-        for approval_file in approval_files:
-            try:
-                with open(approval_file, "r") as f:
-                    data = json.load(f)
-                    approval_id = data.get("approval_id")
-                    approved = data.get("approved", False)
-                    
-                    if approval_id and approval_id in self._pending_approvals:
-                        request = self._pending_approvals[approval_id]
-                        if request.status == ApprovalStatus.PENDING:
-                            # Process the approval
-                            request.resolve(approved)
-                            print(f"Approval response received from webhook: {approval_id} -> {approved}", file=sys.stderr, flush=True)
-                        
-                        # Remove the file
-                        try:
-                            os.remove(approval_file)
-                        except Exception:
-                            pass
-            except (json.JSONDecodeError, KeyError, FileNotFoundError):
-                # File might be in use or invalid, skip it
-                pass
-            except Exception as e:
-                print(f"Error reading approval file {approval_file}: {e}", file=sys.stderr, flush=True)
+        # Check for approvals from all platforms
+        platforms = ["slack", "webex", "teams"]
+        for platform in platforms:
+            approval_files = glob.glob(f"/tmp/cite-before-act-{platform}-approval-*.json")
+            for approval_file in approval_files:
+                try:
+                    with open(approval_file, "r") as f:
+                        data = json.load(f)
+                        approval_id = data.get("approval_id")
+                        approved = data.get("approved", False)
+
+                        if approval_id and approval_id in self._pending_approvals:
+                            request = self._pending_approvals[approval_id]
+                            if request.status == ApprovalStatus.PENDING:
+                                # Process the approval
+                                request.resolve(approved)
+                                print(
+                                    f"Approval response received from {platform} webhook: "
+                                    f"{approval_id} -> {approved}",
+                                    file=sys.stderr,
+                                    flush=True
+                                )
+
+                            # Remove the file
+                            try:
+                                os.remove(approval_file)
+                            except Exception:
+                                pass
+                except (json.JSONDecodeError, KeyError, FileNotFoundError):
+                    # File might be in use or invalid, skip it
+                    pass
+                except Exception as e:
+                    print(f"Error reading approval file {approval_file}: {e}", file=sys.stderr, flush=True)
 
