@@ -31,6 +31,24 @@ class SlackConfig(BaseModel):
         return v
 
 
+class WebexConfig(BaseModel):
+    """Webex Teams configuration."""
+
+    token: str = Field(..., description="Webex bot access token")
+    room_id: Optional[str] = Field(None, description="Webex room/space ID")
+    person_email: Optional[str] = Field(None, description="Person email for DMs")
+
+
+class TeamsConfig(BaseModel):
+    """Microsoft Teams configuration."""
+
+    app_id: str = Field(..., description="Microsoft App ID")
+    app_password: str = Field(..., description="Microsoft App Password")
+    service_url: str = Field("https://smba.trafficmanager.net/amer/", description="Teams service URL")
+    conversation_id: Optional[str] = Field(None, description="Conversation/channel ID")
+    tenant_id: Optional[str] = Field(None, description="Teams tenant ID")
+
+
 class DetectionConfig(BaseModel):
     """Detection engine configuration."""
 
@@ -62,10 +80,14 @@ class Settings(BaseModel):
     """Application settings."""
 
     slack: Optional[SlackConfig] = Field(None, description="Slack configuration")
+    webex: Optional[WebexConfig] = Field(None, description="Webex Teams configuration")
+    teams: Optional[TeamsConfig] = Field(None, description="Microsoft Teams configuration")
     detection: DetectionConfig = Field(default_factory=DetectionConfig, description="Detection config")
     upstream: Optional[UpstreamServerConfig] = Field(None, description="Upstream server config")
     approval_timeout_seconds: int = Field(300, description="Default approval timeout")
     enable_slack: bool = Field(True, description="Enable Slack integration")
+    enable_webex: bool = Field(False, description="Enable Webex Teams integration")
+    enable_teams: bool = Field(False, description="Enable Microsoft Teams integration")
     use_local_approval: bool = Field(True, description="Enable local approval (GUI/file-based)")
     use_gui_approval: bool = Field(True, description="Use GUI dialog for local approval (requires tkinter)")
 
@@ -87,6 +109,36 @@ class Settings(BaseModel):
                 token=slack_token,
                 channel=slack_channel,
                 user_id=slack_user_id,
+            )
+
+        # Webex config
+        webex_token = os.getenv("WEBEX_BOT_TOKEN")
+        webex_room_id = os.getenv("WEBEX_ROOM_ID")
+        webex_person_email = os.getenv("WEBEX_PERSON_EMAIL")
+
+        webex_config = None
+        if webex_token:
+            webex_config = WebexConfig(
+                token=webex_token,
+                room_id=webex_room_id,
+                person_email=webex_person_email,
+            )
+
+        # Teams config
+        teams_app_id = os.getenv("TEAMS_APP_ID")
+        teams_app_password = os.getenv("TEAMS_APP_PASSWORD")
+        teams_service_url = os.getenv("TEAMS_SERVICE_URL", "https://smba.trafficmanager.net/amer/")
+        teams_conversation_id = os.getenv("TEAMS_CONVERSATION_ID")
+        teams_tenant_id = os.getenv("TEAMS_TENANT_ID")
+
+        teams_config = None
+        if teams_app_id and teams_app_password:
+            teams_config = TeamsConfig(
+                app_id=teams_app_id,
+                app_password=teams_app_password,
+                service_url=teams_service_url,
+                conversation_id=teams_conversation_id,
+                tenant_id=teams_tenant_id,
             )
 
         # Detection config
@@ -150,15 +202,21 @@ class Settings(BaseModel):
         # Approval settings
         approval_timeout = int(os.getenv("APPROVAL_TIMEOUT_SECONDS", "300"))
         enable_slack = os.getenv("ENABLE_SLACK", "true").lower() == "true"
+        enable_webex = os.getenv("ENABLE_WEBEX", "false").lower() == "true"
+        enable_teams = os.getenv("ENABLE_TEAMS", "false").lower() == "true"
         use_local_approval = os.getenv("USE_LOCAL_APPROVAL", "true").lower() == "true"
         use_gui_approval = os.getenv("USE_GUI_APPROVAL", "true").lower() == "true"
 
         return cls(
             slack=slack_config,
+            webex=webex_config,
+            teams=teams_config,
             detection=detection_config,
             upstream=upstream_config,
             approval_timeout_seconds=approval_timeout,
             enable_slack=enable_slack,
+            enable_webex=enable_webex,
+            enable_teams=enable_teams,
             use_local_approval=use_local_approval,
             use_gui_approval=use_gui_approval,
         )
