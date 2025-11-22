@@ -21,6 +21,23 @@ from cite_before_act.slack.client import SlackClient
 from cite_before_act.slack.handlers import SlackHandler
 from config.settings import Settings
 
+# Optional platform imports
+try:
+    from cite_before_act.webex.client import WebexClient
+    from cite_before_act.webex.handlers import WebexHandler
+except ImportError:
+    WebexClient = None
+    WebexHandler = None
+
+try:
+    from cite_before_act.teams.client import TeamsClient
+    from cite_before_act.teams.handlers import TeamsHandler
+    from cite_before_act.teams.adapter import create_teams_adapter
+except ImportError:
+    TeamsClient = None
+    TeamsHandler = None
+    create_teams_adapter = None
+
 # MCP Protocol Version
 # Default to 2025-06-18 (latest as of implementation)
 # Will be updated from negotiated version in initialize response
@@ -79,27 +96,82 @@ class ProxyServer:
                 )
                 slack_handler = SlackHandler(client=slack_client.client)
                 slack_configured = True
+                print("✅ Slack client initialized", file=sys.stderr)
             except Exception as e:
                 print(f"Warning: Failed to initialize Slack client: {e}", file=sys.stderr)
                 print("Falling back to local approval", file=sys.stderr)
                 slack_configured = False
 
+        # Webex integration (optional)
+        webex_client = None
+        webex_handler = None
+        webex_configured = False
+        if self.settings.enable_webex and self.settings.webex and WebexClient:
+            try:
+                webex_client = WebexClient(
+                    access_token=self.settings.webex.token,
+                    room_id=self.settings.webex.room_id,
+                    person_email=self.settings.webex.person_email,
+                )
+                webex_handler = WebexHandler(access_token=self.settings.webex.token)
+                webex_configured = True
+                print("✅ Webex client initialized", file=sys.stderr)
+            except Exception as e:
+                print(f"Warning: Failed to initialize Webex client: {e}", file=sys.stderr)
+                print("Webex approval will not be available", file=sys.stderr)
+                webex_configured = False
+        elif self.settings.enable_webex:
+            if not WebexClient:
+                print("Warning: Webex enabled but webexteamssdk not installed. Install with: pip install webexteamssdk", file=sys.stderr)
+            elif not self.settings.webex:
+                print("Warning: Webex enabled but not configured. Set WEBEX_BOT_TOKEN and WEBEX_ROOM_ID or WEBEX_PERSON_EMAIL.", file=sys.stderr)
+
+        # Teams integration (optional)
+        teams_client = None
+        teams_handler = None
+        teams_configured = False
+        if self.settings.enable_teams and self.settings.teams and TeamsClient and create_teams_adapter:
+            try:
+                teams_adapter = create_teams_adapter(
+                    app_id=self.settings.teams.app_id,
+                    app_password=self.settings.teams.app_password,
+                )
+                teams_client = TeamsClient(
+                    adapter=teams_adapter,
+                    service_url=self.settings.teams.service_url,
+                    conversation_id=self.settings.teams.conversation_id,
+                    tenant_id=self.settings.teams.tenant_id,
+                )
+                teams_handler = TeamsHandler()
+                teams_configured = True
+                print("✅ Teams client initialized", file=sys.stderr)
+            except Exception as e:
+                print(f"Warning: Failed to initialize Teams client: {e}", file=sys.stderr)
+                print("Teams approval will not be available", file=sys.stderr)
+                teams_configured = False
+        elif self.settings.enable_teams:
+            if not TeamsClient:
+                print("Warning: Teams enabled but botbuilder packages not installed. Install with: pip install botbuilder-core botframework-connector", file=sys.stderr)
+            elif not self.settings.teams:
+                print("Warning: Teams enabled but not configured. Set TEAMS_APP_ID and TEAMS_APP_PASSWORD.", file=sys.stderr)
+
         # Local approval configuration
-        # Enable local approval to work in parallel with Slack
+        # Enable local approval to work in parallel with platform integrations
         # This provides multiple approval methods simultaneously:
-        # - Slack notifications (if configured)
+        # - Platform notifications (Slack/Webex/Teams if configured)
         # - Native OS dialogs (macOS/Windows) - uses osascript/PowerShell
         # - File-based approval (all platforms) - always shown in logs
         local_approval = None
-        should_use_local = self.settings.use_local_approval or not slack_configured
+        any_platform_configured = slack_configured or webex_configured or teams_configured
+        should_use_local = self.settings.use_local_approval or not any_platform_configured
         if should_use_local:
             # Use native dialogs on macOS/Windows, file-based on Linux
             # Native dialogs use osascript (macOS) or PowerShell (Windows)
             # These work even in stdio MCP mode because they run as separate processes
-            # If Slack is configured, disable native dialogs but keep file-based logging
+            # If any platform is configured, disable native dialogs but keep file-based logging
             use_native = self.settings.use_gui_approval
-            if slack_configured:
-                # When Slack is enabled, skip native popup but keep CLI logging
+            if any_platform_configured:
+                # When any platform is enabled, skip native popup but keep CLI logging
                 use_native = False
             local_approval = LocalApproval(
                 use_native_dialog=use_native,
@@ -110,6 +182,10 @@ class ProxyServer:
         approval_manager = ApprovalManager(
             slack_client=slack_client,
             slack_handler=slack_handler,
+            webex_client=webex_client,
+            webex_handler=webex_handler,
+            teams_client=teams_client,
+            teams_handler=teams_handler,
             local_approval=local_approval,
             default_timeout_seconds=self.settings.approval_timeout_seconds,
             use_local_fallback=True,  # Always use local as fallback

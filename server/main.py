@@ -80,6 +80,18 @@ def main() -> None:
             file=sys.stderr,
         )
 
+    if settings.enable_webex and not settings.webex:
+        print(
+            "Warning: Webex enabled but not configured. Set WEBEX_BOT_TOKEN and WEBEX_ROOM_ID or WEBEX_PERSON_EMAIL.",
+            file=sys.stderr,
+        )
+
+    if settings.enable_teams and not settings.teams:
+        print(
+            "Warning: Teams enabled but not configured. Set TEAMS_APP_ID and TEAMS_APP_PASSWORD.",
+            file=sys.stderr,
+        )
+
     # Create and run proxy server
     try:
         proxy = ProxyServer(settings)
