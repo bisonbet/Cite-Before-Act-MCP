@@ -9,7 +9,7 @@ Cite-Before-Act MCP implements the "human-in-the-loop" safety pattern for MCP se
 1. **Intercepts** all tool calls before execution
 2. **Detects** mutating operations using multiple strategies
 3. **Generates** human-readable previews of what would happen
-4. **Requests** approval via multiple methods (native dialogs, Slack, file-based)
+4. **Requests** approval via concurrent methods (native dialogs, Slack buttons, file-based) - first response wins
 5. **Executes** only after explicit approval
 
 This provides a standardized "dry-run → approval → execute" workflow that other MCP servers can leverage.
@@ -18,8 +18,12 @@ This provides a standardized "dry-run → approval → execute" workflow that ot
 
 - **Multi-Strategy Detection**: Identifies mutating tools via allowlist/blocklist, naming conventions, and metadata analysis
 - **Natural Language Previews**: Generates human-readable descriptions of tool actions
-- **Multiple Approval Methods**: Native OS dialogs (macOS/Windows), Slack integration, and file-based CLI logging
-- **Smart Method Selection**: Automatically disables native popups when Slack is enabled (prevents duplicates)
+- **Concurrent Approval Methods**: Multiple approval channels run in parallel - respond via any method
+  - Native OS dialogs (macOS/Windows)
+  - Slack integration with interactive buttons
+  - File-based CLI approval (always available, visible in logs)
+- **First Response Wins**: User can approve/reject via any enabled method - the first response is accepted
+- **Smart Method Coordination**: Automatically disables native popups when Slack is enabled (prevents duplicates), while keeping file-based logging
 - **Works Out of the Box**: Local approval requires no configuration
 - **FastMCP Based**: Built on FastMCP for easy integration and proxy capabilities
 - **Configurable**: Flexible configuration via environment variables
@@ -74,8 +78,17 @@ Client → Cite-Before-Act Proxy → Middleware → Detection → Explain → Ap
                                     ↓
                               (if mutating)
                                     ↓
-                          Multi-Method Approval
-                          (Native Dialog + Slack + File)
+                          Concurrent Approval Methods
+                          (run in parallel, first response wins)
+                                    ↓
+                    ┌───────────────┼───────────────┐
+                    │               │               │
+              Native Dialog    Slack Button   File-Based
+              (macOS/Win)   (interactive msg)  (CLI/logs)
+                    │               │               │
+                    └───────────────┼───────────────┘
+                                    ↓
+                        User responds via any method
                                     ↓
                               Execute or Reject
 ```
@@ -86,20 +99,31 @@ Client → Cite-Before-Act Proxy → Middleware → Detection → Explain → Ap
 2. Cite-Before-Act intercepts the `write_file` tool call
 3. Detection engine identifies it as mutating (via `write_` prefix)
 4. Explain engine generates preview: "Write file: /path/test.txt (13 bytes)"
-5. Approval request appears (native dialog, Slack, or file-based)
-6. User approves
-7. File is created
+5. Approval requests sent concurrently via all enabled methods:
+   - **Native dialog**: Popup appears (macOS/Windows, if Slack not enabled)
+   - **Slack**: Message with Approve/Reject buttons sent to channel/DM (if configured)
+   - **File-based**: Instructions printed to Claude Desktop logs (always)
+6. User responds via **any method** (first response wins)
+7. File is created (if approved) or rejected with error message
 8. Result returned to Claude Desktop
 
 **Read-only operations** (like `read_file`, `list_directory`) execute immediately without approval.
 
 ## Supported Approval Methods
 
-| Method | Platform | Requires Config | Notes |
-|--------|----------|----------------|-------|
-| **Native OS Dialog** | macOS/Windows | No | Auto-disabled when Slack enabled |
-| **File-Based (CLI)** | All | No | Always enabled, prints to logs |
-| **Slack** | All | Yes (token) | Disables native dialogs when enabled |
+All enabled approval methods run **concurrently** (in parallel), and the **first response wins**. This means you can respond via any available method - whichever you see first.
+
+| Method | Platform | Requires Config | When Active | Notes |
+|--------|----------|----------------|-------------|-------|
+| **Native OS Dialog** | macOS/Windows | No | When `USE_GUI_APPROVAL=true` and Slack not enabled | Interactive popup using osascript (macOS) or PowerShell (Windows) |
+| **Slack (Interactive)** | All | Yes (token + webhook) | When `ENABLE_SLACK=true` | Sends message with Approve/Reject buttons; auto-disables native dialogs |
+| **File-Based (CLI)** | All | No | Always active | Instructions printed to logs; user writes response to `/tmp/cite-before-act-approval-*.json` |
+
+**Key behaviors:**
+- **Parallel execution**: All enabled methods run simultaneously
+- **First response wins**: Approval or rejection from any method is immediately accepted
+- **Smart coordination**: Native dialogs automatically disabled when Slack is configured (prevents duplicate popups)
+- **File-based always available**: Instructions always printed to logs as a universal fallback, regardless of other methods
 
 See [Approval Methods](docs/approval-methods.md) for detailed configuration.
 
