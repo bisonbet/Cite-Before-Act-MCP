@@ -7,7 +7,8 @@ This guide will walk you through setting up a Microsoft Teams bot for approval n
 - Azure account with permissions to create App Registrations and Bot Services
 - Microsoft Teams workspace where you can add bots
 - Public HTTPS endpoint (use ngrok for development, or deploy to cloud)
-- Python 3.8+ with botbuilder-core and botframework-connector installed
+- Python 3.10+ (required for botbuilder-core 4.15.0+)
+- botbuilder-core and botframework-connector packages installed
 
 ## Architecture Overview
 
@@ -58,12 +59,14 @@ Unlike Slack and Webex which use simple webhooks, Microsoft Teams requires:
 
 ### 1.4 Configure Messaging Endpoint
 
-1. Go to your Azure Bot resource
-2. Click **Configuration** in the left menu
-3. Set **Messaging endpoint**:
+1. Go to your Azure Bot resource in Azure Portal
+2. In the left menu, click **Configuration** (or **Settings** → **Configuration** in some Azure Portal versions)
+3. Find the **Messaging endpoint** field
+4. Set the endpoint URL:
    - For development: `https://your-ngrok-url.ngrok.io/api/messages`
    - For production: `https://your-domain.com/api/messages`
-4. Click **Apply**
+   - **Important**: Must be HTTPS (Teams requires secure connections)
+5. Click **Apply** or **Save** to save the configuration
 
 ## Step 2: Add Bot to Microsoft Teams
 
@@ -85,7 +88,7 @@ teams-app-manifest/
 └── outline-icon.png  (32x32 px)
 ```
 
-**manifest.json** (replace `YOUR_APP_ID` with your actual App ID):
+**manifest.json** (replace `YOUR_APP_ID` with your actual App ID from Step 1.2):
 
 ```json
 {
@@ -178,9 +181,19 @@ TEAMS_SERVICE_URL=https://smba.trafficmanager.net/amer/
 
 ### 3.2 Install Dependencies
 
+Install the required Bot Framework packages:
+
 ```bash
-pip install botbuilder-core botframework-connector
+pip install botbuilder-core>=4.15.0 botframework-connector>=4.15.0
 ```
+
+Or install all dependencies from requirements.txt:
+
+```bash
+pip install -r requirements.txt
+```
+
+**Note**: Ensure you're using Python 3.10 or higher, as botbuilder-core 4.15.0+ requires Python 3.10+.
 
 ### 3.3 Run the Webhook Server
 
@@ -218,43 +231,65 @@ gunicorn -w 4 -b 0.0.0.0:3000 examples.unified_webhook_server:app
 
 ## Step 4: Get Conversation Reference
 
-The bot needs to know where to send approval requests. This happens automatically when:
+The bot needs to know where to send approval requests. The conversation reference is captured when the bot receives messages or is added to a conversation.
 
-1. **You add the bot to a channel/chat** - It receives a conversation update event
-2. **You send the bot a message** - It receives the conversation reference
-3. **The bot is mentioned in a channel** - It receives the conversation reference
+**Important**: The unified webhook server (`unified_webhook_server.py`) currently logs conversation references but doesn't persist them automatically. For production use, you'll need to either:
+- Store conversation references in a file/database and load them when sending approvals
+- Use the conversation reference from each incoming message
+- Pre-configure the conversation ID (see Step 4.2)
 
-### 4.1 Manual Method (Recommended for Testing)
+### 4.1 Establish Conversation Reference (Recommended for Testing)
 
 1. Open Teams and go to the chat/channel where you added the bot
 2. Send a message to the bot (e.g., "hello")
-3. The bot will store the conversation reference automatically
-4. Check the webhook server logs - you should see:
-   ```
-   📝 Stored Teams conversation reference: 19:xxxxx...
-   ```
+3. The bot will receive the message and log the conversation reference
+4. Check the webhook server logs - you should see activity indicating the message was received
+5. **Note**: The conversation reference is available in the activity but needs to be stored if you want to send proactive messages later
 
-### 4.2 Find Conversation ID Manually (Optional)
+### 4.2 Find Conversation ID Manually (Recommended for Production)
 
-If you want to pre-configure the conversation ID:
+If you want to pre-configure the conversation ID to avoid needing to store references dynamically:
 
 1. Open Teams in a web browser
-2. Navigate to your team/channel
+2. Navigate to your team/channel where the bot is installed
 3. Look at the URL - it contains the conversation ID:
    ```
    https://teams.microsoft.com/l/channel/19%3A...
    ```
-4. The part after `channel/` (URL-decoded) is your conversation ID
-5. Add to `.env`: `TEAMS_CONVERSATION_ID=19:xxxxx...`
+4. The part after `channel/` (URL-encoded) needs to be decoded:
+   - `19%3A` decodes to `19:`
+   - The full conversation ID format is: `19:xxxxx...`
+5. Copy the full conversation ID (everything after `/channel/`, URL-decoded)
+6. Add to your `.env` file:
+   ```bash
+   TEAMS_CONVERSATION_ID=19:xxxxx...
+   ```
+7. If you know your tenant ID, you can also add:
+   ```bash
+   TEAMS_TENANT_ID=your-tenant-id
+   ```
+
+**Alternative**: Extract from webhook server logs when the bot receives a message - the conversation ID will be in the activity JSON.
 
 ## Step 5: Test the Integration
 
-1. Make sure your webhook server is running
-2. Make sure the bot is added to a Teams channel/chat
-3. Send the bot a test message to establish conversation reference
-4. Run an MCP tool that requires approval
-5. You should receive an adaptive card in Teams with Approve/Reject buttons
-6. Click a button - the approval should be processed
+1. **Start the webhook server** (see Step 3.3)
+2. **Verify the bot is added** to a Teams channel/chat (see Step 2.3)
+3. **Establish conversation reference**:
+   - Send the bot a test message (e.g., "hello") in Teams
+   - Check webhook server logs to confirm message was received
+   - If using pre-configured conversation ID, skip this step
+4. **Trigger an approval request**:
+   - Run an MCP tool that requires approval (e.g., `write_file`, `create_repository`)
+   - The Cite-Before-Act middleware should detect it as mutating
+5. **Check Teams for approval card**:
+   - You should receive an adaptive card in Teams with Approve/Reject buttons
+   - The card shows the tool name, description, and arguments
+6. **Test approval/rejection**:
+   - Click **Approve** or **Reject** button
+   - The card should update to show the status
+   - Check webhook server logs for approval response
+   - The MCP tool should proceed (if approved) or be rejected (if rejected)
 
 ## Troubleshooting
 
@@ -269,9 +304,14 @@ If you want to pre-configure the conversation ID:
 
 **Test endpoint:**
 ```bash
-curl https://your-url/api/messages
-# Should return 200 OK
+# Test that endpoint is accessible (may return 400 without proper auth, which is OK)
+curl -X POST https://your-url/api/messages \
+  -H "Content-Type: application/json" \
+  -d '{"type":"message"}'
+# Should return 200 OK or 400 Bad Request (both indicate endpoint is working)
 ```
+
+**Note**: A 400 response is normal without proper Bot Framework authentication headers. A 404 means the endpoint isn't configured correctly.
 
 ### "Unauthorized" errors
 
@@ -319,10 +359,20 @@ Send the bot a message in the target channel/chat to store the conversation refe
 ### Issue: Approval buttons don't work
 
 **Solution:**
-- Verify using `Action.Execute` not `Action.Submit`
-- Check that handler returns proper `InvokeResponse`
-- Review webhook server logs for errors
-- Test with a simple card first
+- Verify using `Action.Execute` (not deprecated `Action.Submit`) in adaptive card
+- Check that `on_adaptive_card_invoke` handler is implemented correctly
+- Verify handler returns proper `InvokeResponse` with status 200
+- Check webhook server logs for invoke activity errors
+- Ensure Bot Framework SDK version is 4.15.0 or higher
+- Test with a simple card first to isolate the issue
+
+### Issue: Conversation reference not stored
+
+**Solution:**
+- The unified webhook server logs conversation references but doesn't persist them by default
+- For production, implement conversation reference storage (file/database)
+- Alternatively, pre-configure `TEAMS_CONVERSATION_ID` in `.env` file
+- Check webhook server logs when bot receives messages to extract conversation ID
 
 ## Security Considerations
 
@@ -345,11 +395,14 @@ Send the bot a message in the target channel/chat to store the conversation refe
 
 ## Additional Resources
 
-- [Microsoft Teams Bot Framework](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/what-are-bots)
-- [Adaptive Cards](https://adaptivecards.io/)
+- [Microsoft Teams Bot Framework Documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/what-are-bots)
+- [Azure Bot Service Documentation](https://learn.microsoft.com/en-us/azure/bot-service/bot-service-overview-introduction)
 - [Bot Framework Python SDK](https://github.com/microsoft/botbuilder-python)
-- [Teams App Manifest](https://learn.microsoft.com/en-us/microsoftteams/platform/resources/schema/manifest-schema)
+- [Bot Framework Python Samples](https://github.com/microsoft/botbuilder-python/tree/main/samples)
+- [Teams App Manifest Schema](https://learn.microsoft.com/en-us/microsoftteams/platform/resources/schema/manifest-schema)
+- [Adaptive Cards Documentation](https://adaptivecards.io/)
 - [Adaptive Cards Designer](https://adaptivecards.io/designer/) - Test card designs
+- [Bot Framework Authentication](https://learn.microsoft.com/en-us/azure/bot-service/bot-builder-authentication)
 
 ## Next Steps
 

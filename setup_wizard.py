@@ -449,10 +449,128 @@ def configure_slack() -> Dict[str, Any]:
     return config
 
 
-def configure_ngrok(slack_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Configure ngrok for webhooks."""
-    if not slack_config.get("webhook_enabled") or slack_config.get("webhook_hosting") != "ngrok":
+def configure_webex() -> Dict[str, Any]:
+    """Configure Webex integration."""
+    config = {}
+
+    print("\n" + "─" * 70)
+    print("Webex Configuration")
+    print("─" * 70)
+
+    if not prompt_yes_no("Do you want to enable Webex integration?", default=False):
+        return {"enabled": False}
+
+    config["enabled"] = True
+
+    print("\n📱 To get your Webex bot token:")
+    print("1. Go to: https://developer.webex.com/my-apps")
+    print("2. Create a new app → Create a Bot")
+    print("3. Fill in bot details (name, username, icon)")
+    print("4. Copy the 'Bot's Access Token' (starts with Y2lzY29...)")
+    print("   ⚠️  WARNING: Token is only shown once! Save it immediately!")
+
+    config["bot_token"] = prompt("\nWebex Bot Token")
+
+    # Room or Direct Message
+    if prompt_yes_no("\nSend approvals to a Webex space/room?", default=True):
+        print("\n📝 To get room ID:")
+        print("1. Add your bot to a Webex space")
+        print("2. Use the Webex API to list rooms:")
+        print("   curl -X GET https://webexapis.com/v1/rooms \\")
+        print("     -H 'Authorization: Bearer YOUR_TOKEN'")
+        print("3. Or use Python: api.rooms.list()")
+        config["room_id"] = prompt("Room ID")
+        config["person_email"] = None
+    else:
+        print("\n👤 To send direct messages:")
+        print("1. Get the person's Webex email address")
+        print("2. Note: Person must have interacted with bot first")
+        config["person_email"] = prompt("Person Email")
+        config["room_id"] = None
+
+    # Webhook server (always needed for Webex buttons)
+    print("\n📌 Webex requires a webhook to receive button click events.")
+    print("   You'll need to:")
+    print("   1. Run the unified webhook server")
+    print("   2. Create a webhook for attachmentActions")
+    print("   3. Update webhook URL when ngrok restarts (or use stable domain)")
+    config["webhook_enabled"] = True
+
+    return config
+
+
+def configure_teams() -> Dict[str, Any]:
+    """Configure Microsoft Teams integration."""
+    config = {}
+
+    print("\n" + "─" * 70)
+    print("Microsoft Teams Configuration")
+    print("─" * 70)
+
+    if not prompt_yes_no("Do you want to enable Microsoft Teams integration?", default=False):
+        return {"enabled": False}
+
+    config["enabled"] = True
+
+    print("\n📱 Microsoft Teams setup is more complex than Slack/Webex:")
+    print("1. Requires Azure Bot Service")
+    print("2. Requires App Registration in Azure AD")
+    print("3. Requires Bot Framework SDK")
+    print("\n📚 For detailed setup instructions, see: docs/TEAMS_SETUP.md")
+
+    print("\n🔑 To get your Teams credentials:")
+    print("1. Go to Azure Portal: https://portal.azure.com")
+    print("2. Create App Registration in Azure AD")
+    print("3. Generate client secret (save immediately!)")
+    print("4. Create Azure Bot resource")
+    print("5. Configure messaging endpoint (your webhook URL)")
+
+    config["app_id"] = prompt("\nTeams App ID (Application/Client ID)")
+    config["app_password"] = prompt("Teams App Password (Client Secret)")
+
+    # Optional: Service URL and conversation reference
+    print("\n📝 Optional settings:")
+    service_url = prompt("Teams Service URL (press Enter for default)", "https://smba.trafficmanager.net/amer/")
+    if service_url:
+        config["service_url"] = service_url
+
+    # Webhook server (always needed for Teams)
+    print("\n�� Teams requires a webhook endpoint at /api/messages")
+    print("   The bot will receive all messages and invoke activities here.")
+    config["webhook_enabled"] = True
+
+    return config
+
+
+def configure_ngrok(slack_config: Dict[str, Any], webex_config: Dict[str, Any], teams_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Configure ngrok for webhooks.
+
+    Args:
+        slack_config: Slack configuration dict
+        webex_config: Webex configuration dict
+        teams_config: Teams configuration dict
+
+    Returns:
+        ngrok configuration dict or None if not needed
+    """
+    # Check if any platform needs webhooks
+    needs_webhook = (
+        slack_config.get("webhook_enabled") or
+        webex_config.get("webhook_enabled") or
+        teams_config.get("webhook_enabled")
+    )
+
+    if not needs_webhook:
         return None
+
+    # For Slack, check if using ngrok (vs self-hosted)
+    # For Webex and Teams, webhooks are always needed
+    slack_uses_ngrok = slack_config.get("webhook_enabled") and slack_config.get("webhook_hosting") == "ngrok"
+
+    # If Slack is enabled but using self-hosted, and no other platforms need webhooks, skip ngrok
+    if slack_config.get("webhook_enabled") and not slack_uses_ngrok:
+        if not (webex_config.get("enabled") or teams_config.get("enabled")):
+            return None
 
     print("\n" + "─" * 70)
     print("ngrok Configuration")
@@ -621,16 +739,23 @@ def configure_upstream() -> Dict[str, Any]:
         return config
 
 
-def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], upstream_config: Dict[str, Any]) -> None:
+def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], webex_config: Dict[str, Any], teams_config: Dict[str, Any], upstream_config: Dict[str, Any]) -> None:
     """Generate .env file with secrets and global settings.
 
     The .env file contains:
-    - Secrets (GITHUB_PERSONAL_ACCESS_TOKEN, SLACK_BOT_TOKEN, etc.)
-    - Global settings that apply to ALL MCP servers (ENABLE_SLACK, USE_LOCAL_APPROVAL, etc.)
+    - Secrets (GITHUB_PERSONAL_ACCESS_TOKEN, SLACK_BOT_TOKEN, WEBEX_BOT_TOKEN, TEAMS_APP_ID, etc.)
+    - Global settings that apply to ALL MCP servers (ENABLE_SLACK, ENABLE_WEBEX, ENABLE_TEAMS, etc.)
     - Global detection defaults (DETECTION_ENABLE_CONVENTION, DETECTION_ENABLE_METADATA)
 
     Server-specific config (UPSTREAM_COMMAND, UPSTREAM_ARGS, etc.) goes in
     mcpServers.env in Claude Desktop config, NOT in this .env file.
+
+    Args:
+        project_dir: Project directory path
+        slack_config: Slack configuration dict
+        webex_config: Webex configuration dict
+        teams_config: Teams configuration dict
+        upstream_config: Upstream server configuration dict
 
     If .env exists and has a GitHub token set, we'll append the token if needed.
     If .env doesn't exist or you confirm overwrite, regenerates the entire file.
@@ -733,16 +858,66 @@ def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], upstream_
         if slack_config.get("webhook_enabled"):
             lines.extend([
                 "",
-                "# Webhook Configuration",
+                "# Slack Webhook Configuration",
                 f"SLACK_SIGNING_SECRET={slack_config['signing_secret']}",
             ])
 
+    # Add Webex configuration if enabled
+    if webex_config["enabled"]:
+        lines.extend([
+            "",
+            "# -----------------------------------------------------------------------------",
+            "# Webex Configuration (Global)",
+            "# -----------------------------------------------------------------------------",
+            f"WEBEX_BOT_TOKEN={webex_config['bot_token']}",
+            f"ENABLE_WEBEX=true",
+        ])
+
+        if webex_config.get("room_id"):
+            lines.append(f"WEBEX_ROOM_ID={webex_config['room_id']}")
+        elif webex_config.get("person_email"):
+            lines.append(f"WEBEX_PERSON_EMAIL={webex_config['person_email']}")
+
+    # Add Teams configuration if enabled
+    if teams_config["enabled"]:
+        lines.extend([
+            "",
+            "# -----------------------------------------------------------------------------",
+            "# Microsoft Teams Configuration (Global)",
+            "# -----------------------------------------------------------------------------",
+            f"TEAMS_APP_ID={teams_config['app_id']}",
+            f"TEAMS_APP_PASSWORD={teams_config['app_password']}",
+            f"ENABLE_TEAMS=true",
+        ])
+
+        if teams_config.get("service_url"):
+            lines.append(f"TEAMS_SERVICE_URL={teams_config['service_url']}")
+
+    # Webhook hosting configuration (applies to all platforms)
+    any_webhook = (slack_config.get("webhook_enabled") or
+                   webex_config.get("webhook_enabled") or
+                   teams_config.get("webhook_enabled"))
+
+    if any_webhook:
+        lines.extend([
+            "",
+            "# -----------------------------------------------------------------------------",
+            "# Webhook Server Configuration",
+            "# -----------------------------------------------------------------------------",
+        ])
+
+        # Determine security mode based on Slack hosting choice (if applicable)
+        if slack_config.get("webhook_enabled"):
             if slack_config.get("webhook_hosting") == "self-hosted":
                 lines.append("SECURITY_MODE=production")
                 lines.append("HOST=0.0.0.0  # Listen on all interfaces for production")
             else:
                 lines.append("SECURITY_MODE=local")
                 lines.append("HOST=127.0.0.1  # Only localhost when using ngrok")
+        else:
+            # Default for Webex/Teams only
+            lines.append("SECURITY_MODE=local")
+            lines.append("HOST=127.0.0.1  # Only localhost when using ngrok")
 
     # Global approval settings
     lines.extend([
@@ -757,11 +932,11 @@ def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], upstream_
         "USE_LOCAL_APPROVAL=true",
     ])
 
-    # Set USE_GUI_APPROVAL based on Slack being enabled
-    if slack_config["enabled"]:
-        lines.append("USE_GUI_APPROVAL=false  # Disabled when Slack is enabled")
+    # Set USE_GUI_APPROVAL based on any platform being enabled
+    if any([slack_config.get("enabled"), webex_config.get("enabled"), teams_config.get("enabled")]):
+        lines.append("USE_GUI_APPROVAL=false  # Disabled when any platform is enabled")
     else:
-        lines.append("USE_GUI_APPROVAL=true   # Enabled when Slack is disabled")
+        lines.append("USE_GUI_APPROVAL=true   # Enabled when no platforms are enabled")
 
     # Global detection defaults
     lines.extend([
@@ -919,14 +1094,42 @@ on_http_request:
     return policy_path
 
 
-def create_startup_scripts(project_dir: Path, venv_dir: Path, slack_config: Dict[str, Any], ngrok_config: Optional[Dict[str, Any]]) -> None:
-    """Create convenience startup scripts."""
-    if not slack_config.get("webhook_enabled"):
+def create_startup_scripts(project_dir: Path, venv_dir: Path, slack_config: Dict[str, Any], webex_config: Dict[str, Any], teams_config: Dict[str, Any], ngrok_config: Optional[Dict[str, Any]]) -> None:
+    """Create convenience startup scripts.
+
+    Args:
+        project_dir: Project directory path
+        venv_dir: Virtual environment directory path
+        slack_config: Slack configuration dict
+        webex_config: Webex configuration dict
+        teams_config: Teams configuration dict
+        ngrok_config: ngrok configuration dict (if applicable)
+    """
+    # Check if any platform needs webhooks
+    any_webhook = (slack_config.get("webhook_enabled") or
+                   webex_config.get("webhook_enabled") or
+                   teams_config.get("webhook_enabled"))
+
+    if not any_webhook:
         return
 
     print("\nCreating startup scripts...")
 
     python_exe = get_venv_python(venv_dir)
+
+    # Determine which webhook server to use
+    # Use unified server if multiple platforms enabled OR if Webex/Teams is enabled
+    enabled_platforms = sum([
+        slack_config.get("enabled", False),
+        webex_config.get("enabled", False),
+        teams_config.get("enabled", False)
+    ])
+
+    use_unified = (enabled_platforms > 1 or
+                   webex_config.get("enabled") or
+                   teams_config.get("enabled"))
+
+    webhook_script = "examples/unified_webhook_server.py" if use_unified else "examples/slack_webhook_server.py"
 
     if platform.system() == "Windows":
         # Windows batch file
@@ -945,8 +1148,8 @@ if exist "{env_file}" (
     )
 )
 
-echo Starting Slack Webhook Server...
-"{python_exe}" examples\\slack_webhook_server.py
+echo Starting Webhook Server...
+"{python_exe}" {webhook_script.replace("/", "\\")}
 """
         if ngrok_config:
             ngrok_script = project_dir / "start_ngrok.bat"
@@ -993,8 +1196,8 @@ if [ -f "{env_file}" ]; then
     set +a
 fi
 
-echo "Starting Slack Webhook Server..."
-"{python_exe}" examples/slack_webhook_server.py
+echo "Starting Webhook Server..."
+"{python_exe}" {webhook_script}
 """
         with open(script_path, "w") as f:
             f.write(content)
@@ -1038,8 +1241,17 @@ fi
     print_success(f"Created: {script_path}")
 
 
-def print_final_instructions(project_dir: Path, slack_config: Dict[str, Any], ngrok_config: Optional[Dict[str, Any]], claude_config: Dict[str, Any]) -> None:
-    """Print final setup instructions."""
+def print_final_instructions(project_dir: Path, slack_config: Dict[str, Any], webex_config: Dict[str, Any], teams_config: Dict[str, Any], ngrok_config: Optional[Dict[str, Any]], claude_config: Dict[str, Any]) -> None:
+    """Print final setup instructions.
+
+    Args:
+        project_dir: Project directory path
+        slack_config: Slack configuration dict
+        webex_config: Webex configuration dict
+        teams_config: Teams configuration dict
+        ngrok_config: ngrok configuration dict (if applicable)
+        claude_config: Claude Desktop configuration dict
+    """
     print_header("🎉 Setup Complete!")
 
     print("📋 Next Steps:\n")
@@ -1059,8 +1271,12 @@ def print_final_instructions(project_dir: Path, slack_config: Dict[str, Any], ng
 
     print(f"   {Colors.YELLOW}{config_path}{Colors.END}")
 
-    # Slack webhook setup
-    if slack_config.get("webhook_enabled"):
+    # Webhook setup for any enabled platform
+    any_webhook = (slack_config.get("webhook_enabled") or
+                   webex_config.get("webhook_enabled") or
+                   teams_config.get("webhook_enabled"))
+
+    if any_webhook:
         print(f"\n{Colors.BOLD}2. Start the Webhook Server:{Colors.END}")
 
         if platform.system() == "Windows":
@@ -1076,15 +1292,33 @@ def print_final_instructions(project_dir: Path, slack_config: Dict[str, Any], ng
             else:
                 print(f"   {Colors.CYAN}./start_ngrok.sh{Colors.END}")
 
-            print(f"\n{Colors.BOLD}4. Configure Slack Interactive Components:{Colors.END}")
-            print("   a. Copy the ngrok URL from the terminal")
-            print("   b. Go to: https://api.slack.com/apps → Your App")
-            print("   c. Go to: Interactivity & Shortcuts")
-            print("   d. Set Request URL to: https://YOUR-NGROK-URL.ngrok.io/slack/interactive")
-            print("   e. Save changes")
+            print(f"\n{Colors.BOLD}4. Configure Platform Webhooks:{Colors.END}")
+
+            if slack_config.get("webhook_enabled"):
+                print(f"\n   {Colors.CYAN}Slack:{Colors.END}")
+                print("   a. Copy the ngrok URL from the terminal")
+                print("   b. Go to: https://api.slack.com/apps → Your App")
+                print("   c. Go to: Interactivity & Shortcuts")
+                print("   d. Set Request URL to: https://YOUR-NGROK-URL.ngrok.io/slack/interactive")
+                print("   e. Save changes")
+
+            if webex_config.get("webhook_enabled"):
+                print(f"\n   {Colors.CYAN}Webex:{Colors.END}")
+                print("   a. Copy the ngrok URL from the terminal")
+                print("   b. Create webhook for attachmentActions:")
+                print("      See docs/WEBEX_SETUP.md for detailed instructions")
+                print("   c. Webhook URL: https://YOUR-NGROK-URL.ngrok.io/webex/interactive")
+                print("   d. Remember to update webhook when ngrok restarts!")
+
+            if teams_config.get("webhook_enabled"):
+                print(f"\n   {Colors.CYAN}Microsoft Teams:{Colors.END}")
+                print("   a. Copy the ngrok URL from the terminal")
+                print("   b. Go to Azure Portal → Your Bot → Configuration")
+                print("   c. Set Messaging endpoint to: https://YOUR-NGROK-URL.ngrok.io/api/messages")
+                print("   d. Save configuration")
         else:
             print(f"\n{Colors.BOLD}3. Deploy webhook server to your cloud/VPS{Colors.END}")
-            print("   Ensure HTTPS is enabled (required by Slack)")
+            print("   Ensure HTTPS is enabled (required by all platforms)")
 
     print(f"\n{Colors.BOLD}5. Restart Claude Desktop{Colors.END}")
     print("   Completely quit and reopen Claude Desktop")
@@ -1092,16 +1326,37 @@ def print_final_instructions(project_dir: Path, slack_config: Dict[str, Any], ng
     print(f"\n{Colors.BOLD}6. Test the Setup:{Colors.END}")
     print("   In Claude Desktop, try:")
     print(f"   {Colors.CYAN}\"Create a file called test.txt with content 'Hello, World!'\"{Colors.END}")
-    print("   You should see an approval request!")
+    print("   You should see an approval request in your configured platform(s)!")
 
     print("\n" + "─" * 70)
     print(f"{Colors.GREEN}✓ All setup files have been generated!{Colors.END}")
     print(f"{Colors.GREEN}✓ Virtual environment created with all dependencies{Colors.END}")
-    if slack_config.get("webhook_enabled") and ngrok_config:
-        print(f"{Colors.GREEN}✓ ngrok traffic policy created for secure webhooks{Colors.END}")
+
+    enabled_platforms = []
+    if slack_config.get("enabled"):
+        enabled_platforms.append("Slack")
+    if webex_config.get("enabled"):
+        enabled_platforms.append("Webex")
+    if teams_config.get("enabled"):
+        enabled_platforms.append("Teams")
+
+    if enabled_platforms:
+        platforms_str = ", ".join(enabled_platforms)
+        print(f"{Colors.GREEN}✓ Configured platforms: {platforms_str}{Colors.END}")
+
+    if any_webhook and ngrok_config:
+        print(f"{Colors.GREEN}✓ ngrok configuration created for webhook tunneling{Colors.END}")
     print("─" * 70)
 
-    print(f"\n📚 For more information, see: {Colors.CYAN}README.md{Colors.END}\n")
+    print(f"\n📚 For more information, see:")
+    print(f"   {Colors.CYAN}README.md{Colors.END} - General setup")
+    if slack_config.get("enabled"):
+        print(f"   {Colors.CYAN}docs/SLACK_SETUP.md{Colors.END} - Slack-specific setup")
+    if webex_config.get("enabled"):
+        print(f"   {Colors.CYAN}docs/WEBEX_SETUP.md{Colors.END} - Webex-specific setup")
+    if teams_config.get("enabled"):
+        print(f"   {Colors.CYAN}docs/TEAMS_SETUP.md{Colors.END} - Teams-specific setup")
+    print()
 
 
 def check_setup_complete(project_dir: Path) -> bool:
@@ -1320,13 +1575,15 @@ def main():
         print_step(3, 7, "Installing Dependencies")
         install_dependencies(venv_dir, project_dir)
 
-        # Step 4: Configure Slack
-        print_step(4, 7, "Configuring Slack Integration")
+        # Step 4: Configure messaging platforms
+        print_step(4, 7, "Configuring Messaging Platforms")
         slack_config = configure_slack()
+        webex_config = configure_webex()
+        teams_config = configure_teams()
 
         # Step 5: Configure ngrok (if needed)
         print_step(5, 7, "Configuring ngrok")
-        ngrok_config = configure_ngrok(slack_config)
+        ngrok_config = configure_ngrok(slack_config, webex_config, teams_config)
 
         # Step 6: Configure upstream server
         print_step(6, 7, "Configuring Upstream MCP Server")
@@ -1336,7 +1593,7 @@ def main():
         print_step(7, 7, "Generating Configuration Files")
 
         # Generate .env
-        generate_env_file(project_dir, slack_config, upstream_config)
+        generate_env_file(project_dir, slack_config, webex_config, teams_config, upstream_config)
 
         # Generate Claude Desktop config
         server_name = generate_server_name(upstream_config, existing_claude_config)
@@ -1352,10 +1609,10 @@ def main():
             create_ngrok_policy(project_dir, slack_config["signing_secret"])
 
         # Create startup scripts
-        create_startup_scripts(project_dir, venv_dir, slack_config, ngrok_config)
+        create_startup_scripts(project_dir, venv_dir, slack_config, webex_config, teams_config, ngrok_config)
 
         # Print final instructions
-        print_final_instructions(project_dir, slack_config, ngrok_config, {"mcpServers": merged_config})
+        print_final_instructions(project_dir, slack_config, webex_config, teams_config, ngrok_config, {"mcpServers": merged_config})
 
     else:
         # Add new server mode
@@ -1402,13 +1659,16 @@ def main():
         else:
             print_success("All dependencies are installed")
         
-        # Load existing Slack config from .env if it exists
+        # Load existing platform configs from .env if it exists
         slack_config = {"enabled": False}
+        webex_config = {"enabled": False}
+        teams_config = {"enabled": False}
         env_path = project_dir / ".env"
         if env_path.exists():
-            # Try to load Slack config from .env
+            # Try to load platform configs from .env
             with open(env_path, "r") as f:
                 for line in f:
+                    # Slack
                     if line.startswith("ENABLE_SLACK="):
                         slack_config["enabled"] = line.split("=", 1)[1].strip().lower() == "true"
                     elif line.startswith("SLACK_BOT_TOKEN="):
@@ -1417,6 +1677,22 @@ def main():
                         slack_config["channel"] = line.split("=", 1)[1].strip()
                     elif line.startswith("SLACK_USER_ID="):
                         slack_config["user_id"] = line.split("=", 1)[1].strip()
+                    # Webex
+                    elif line.startswith("ENABLE_WEBEX="):
+                        webex_config["enabled"] = line.split("=", 1)[1].strip().lower() == "true"
+                    elif line.startswith("WEBEX_BOT_TOKEN="):
+                        webex_config["bot_token"] = line.split("=", 1)[1].strip()
+                    elif line.startswith("WEBEX_ROOM_ID="):
+                        webex_config["room_id"] = line.split("=", 1)[1].strip()
+                    elif line.startswith("WEBEX_PERSON_EMAIL="):
+                        webex_config["person_email"] = line.split("=", 1)[1].strip()
+                    # Teams
+                    elif line.startswith("ENABLE_TEAMS="):
+                        teams_config["enabled"] = line.split("=", 1)[1].strip().lower() == "true"
+                    elif line.startswith("TEAMS_APP_ID="):
+                        teams_config["app_id"] = line.split("=", 1)[1].strip()
+                    elif line.startswith("TEAMS_APP_PASSWORD="):
+                        teams_config["app_password"] = line.split("=", 1)[1].strip()
         
         # Configure upstream server
         print_step(2, 3, "Configuring Upstream MCP Server")

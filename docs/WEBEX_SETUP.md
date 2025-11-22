@@ -6,7 +6,8 @@ This guide will walk you through setting up a Webex Teams bot for approval notif
 
 - Webex account (free tier works fine)
 - Public HTTPS endpoint (use ngrok for development, or deploy to cloud)
-- Python 3.8+ with `webexteamssdk` installed
+- Python 3.8+ (Python 3.10+ recommended for better compatibility)
+- `webexteamssdk` package installed
 
 **Note**: This guide uses the official `webexteamssdk` package from CiscoDevNet, which is the recommended SDK for Webex Teams API integration.
 
@@ -32,7 +33,7 @@ Webex bots work via webhooks:
 5. Fill in the details:
    - **Bot name**: `Cite-Before-Act Approval Bot`
    - **Bot username**: `cite-before-act-bot` (must be unique)
-   - **Icon**: Upload an icon (512x512 px required)
+   - **Icon**: Upload an icon (recommended: 512x512 px or larger, square format)
    - **App Hub Description**: `Bot for approving MCP tool actions`
 6. Click **Add Bot**
 
@@ -44,11 +45,14 @@ After creating the bot, you'll see:
 
 **CRITICAL**: Copy the access token immediately - you won't be able to retrieve it later! The token is only shown once during bot creation.
 
-If you lose it:
+**If you lose the token:**
 1. Go to your bot in [My Apps](https://developer.webex.com/my-apps)
 2. Click on your bot name
-3. Click **Regenerate Access Token** (or look for the token section)
-4. Copy the new token and update your `.env` file immediately
+3. Look for the **Access Token** section
+4. Click **Regenerate Access Token** (or **Copy** if it's still visible)
+5. **Important**: Regenerating creates a new token and invalidates the old one
+6. Copy the new token and update your `.env` file immediately
+7. Restart your webhook server and MCP server to use the new token
 
 ## Step 2: Find Room/Space ID or Email
 
@@ -252,9 +256,19 @@ WEBEX_ROOM_ID=your-room-id
 
 ### 4.2 Install Dependencies
 
+Install the required Webex SDK:
+
 ```bash
-pip install webexteamssdk
+pip install webexteamssdk>=1.6.0
 ```
+
+Or install all dependencies from requirements.txt:
+
+```bash
+pip install -r requirements.txt
+```
+
+**Note**: The `webexteamssdk` package is the official Cisco DevNet SDK for Webex Teams API integration.
 
 ### 4.3 Run the Webhook Server
 
@@ -273,12 +287,25 @@ Server will run on port 3000 by default.
 
 ## Step 5: Test the Integration
 
-1. Make sure your webhook server is running
-2. Make sure ngrok is running (for development)
-3. Make sure the bot is added to the Webex space (if using room)
-4. Run an MCP tool that requires approval
-5. You should receive an adaptive card in Webex with Approve/Reject buttons
-6. Click a button - the approval should be processed
+1. **Start the webhook server** (see Step 3.1)
+2. **Verify ngrok is running** (for development) and copy the HTTPS URL
+3. **Create the webhook** (see Step 3.2) with your ngrok URL
+4. **Add the bot to a Webex space** (if using `WEBEX_ROOM_ID`):
+   - Open Webex Teams app
+   - Go to your space
+   - Click space name → **People** → **Add people**
+   - Search for your bot's username and add it
+5. **Trigger an approval request**:
+   - Run an MCP tool that requires approval (e.g., `write_file`, `create_repository`)
+   - The Cite-Before-Act middleware should detect it as mutating
+6. **Check Webex for approval card**:
+   - You should receive an adaptive card in Webex with Approve/Reject buttons
+   - The card shows the tool name, description, and arguments
+7. **Test approval/rejection**:
+   - Click **Approve** or **Reject** button
+   - Check webhook server logs for "Webex approval response received"
+   - Verify the approval file is created in `/tmp/`
+   - The MCP tool should proceed (if approved) or be rejected (if rejected)
 
 ### Test Message
 
@@ -366,7 +393,8 @@ for room in rooms:
 curl -X POST https://your-url/webex/interactive \
   -H "Content-Type: application/json" \
   -d '{"test": "data"}'
-# Should return a response (even if error), not connection refused
+# Should return a JSON response (even if error), not "connection refused"
+# A 400 Bad Request is normal without proper webhook payload
 ```
 
 **Check webhook status:**
@@ -384,8 +412,13 @@ for wh in webhooks:
 ```
 
 **Common issues:**
-- If webhook status becomes `inactive`, Webex couldn't reach your server. Fix server issues and recreate the webhook.
-- Webex automatically deletes webhooks that fail repeatedly (usually after multiple failed delivery attempts).
+- If webhook status becomes `inactive`, Webex couldn't reach your server. Common causes:
+  - Server is down or unreachable
+  - Firewall blocking incoming connections
+  - URL changed (e.g., ngrok restarted with new URL)
+  - SSL/TLS certificate issues (HTTPS required)
+- Webex automatically deletes webhooks that fail repeatedly (usually after multiple failed delivery attempts over several hours)
+- If your webhook disappears, recreate it with the correct URL
 
 ### "Invalid access token" errors
 
@@ -412,9 +445,11 @@ except ApiError as e:
 1. Go to [My Apps](https://developer.webex.com/my-apps)
 2. Click on your bot name
 3. Look for the **Access Token** section
-4. Click **Regenerate** or **Copy** (depending on UI)
-5. **Immediately** update your `.env` file with the new token
-6. Restart your webhook server and MCP server
+4. Click **Regenerate Access Token** (or **Copy** if still visible)
+5. **Important**: The old token will be invalidated immediately
+6. **Immediately** update your `.env` file with the new token
+7. Restart your webhook server and MCP server to use the new token
+8. Verify the bot can send messages after token update
 
 ### Adaptive card doesn't show buttons
 
@@ -445,7 +480,7 @@ The card should have this structure:
 }
 ```
 
-**Note**: Webex uses adaptive cards version 1.3. Newer versions (1.4+) are not supported.
+**Note**: Webex supports adaptive cards version 1.3. Newer versions (1.4+) are not supported by Webex. The code uses version 1.3 to ensure compatibility.
 
 ### Approval response not processed
 
@@ -472,30 +507,43 @@ ls -la /tmp/cite-before-act-webex-approval-*.json
 # Watch in real-time (Linux/macOS)
 watch -n 1 'ls -la /tmp/cite-before-act-webex-approval-*.json'
 
-# Or manually check (macOS)
+# Or manually check (macOS/Windows)
 ls -la /tmp/cite-before-act-webex-approval-*.json
 
-# View file contents
+# View file contents (replace {approval_id} with actual ID)
 cat /tmp/cite-before-act-webex-approval-{approval_id}.json
+
+# Monitor for new files (Linux/macOS)
+watch -n 0.5 'ls -lt /tmp/cite-before-act-webex-approval-*.json 2>/dev/null | head -5'
 ```
+
+**Note**: On Windows, the `/tmp` directory may not exist. The code uses `/tmp` which maps to a temporary directory on Windows. If files aren't appearing, check your system's temp directory or configure a custom path.
 
 **Expected file format:**
 ```json
 {
+  "approval_id": "abc123...",
   "approved": true,
   "platform": "webex",
-  "timestamp": "2024-01-01T12:00:00Z"
+  "timestamp": 1704110400.0
 }
 ```
+
+**Note**: The `timestamp` is a Unix timestamp (float), not an ISO string. The file is written to `/tmp/cite-before-act-webex-approval-{approval_id}.json`.
 
 ## Common Issues and Solutions
 
 ### Issue: ngrok URL changes every restart
 
+**Problem**: Free ngrok URLs change each time you restart ngrok, requiring webhook updates.
+
 **Solution:**
-- Use ngrok paid plan for reserved domains
-- Deploy to cloud provider (Heroku, AWS, Azure, GCP)
-- Use a tunnel service with stable URLs
+- **Option 1**: Use ngrok paid plan for reserved domains (stable URL)
+- **Option 2**: Deploy to cloud provider (Heroku, AWS, Azure, GCP, Railway, Render)
+- **Option 3**: Use a tunnel service with stable URLs (Cloudflare Tunnel, localtunnel with custom domain)
+- **Option 4**: Create a script to automatically update webhook URL when ngrok restarts
+
+**Quick fix**: Delete old webhook and create new one with updated URL (see Step 6).
 
 ### Issue: Can't send to specific person
 
@@ -506,11 +554,16 @@ cat /tmp/cite-before-act-webex-approval-{approval_id}.json
 
 ### Issue: Webhook keeps getting deleted
 
+**Problem**: Webex automatically deletes webhooks that fail to deliver events repeatedly.
+
 **Solution:**
-- Webex automatically deletes webhooks that fail repeatedly
-- Fix your server errors
-- Verify URL is accessible
-- Re-create webhook after fixing issues
+- **Fix server errors**: Check webhook server logs for errors
+- **Verify URL is accessible**: Test with `curl` to ensure endpoint responds
+- **Check HTTPS**: Webex requires HTTPS - ensure your URL uses `https://`
+- **Monitor webhook status**: Regularly check webhook status (see Step 3.3)
+- **Re-create webhook**: After fixing issues, delete inactive webhook and create a new one
+- **Use stable URL**: Avoid URL changes (see "ngrok URL changes" issue above)
+- **Check firewall**: Ensure your server accepts incoming POST requests on the webhook endpoint
 
 ## Security Considerations
 
@@ -522,14 +575,18 @@ cat /tmp/cite-before-act-webex-approval-{approval_id}.json
 
 ## Production Deployment Checklist
 
-- [ ] Deploy webhook server to cloud with HTTPS
-- [ ] Create webhook with production URL
-- [ ] Set `SECURITY_MODE=production`
-- [ ] Configure proper WSGI server (gunicorn, waitress)
-- [ ] Set up log monitoring
+- [ ] Deploy webhook server to cloud with HTTPS (Azure App Service, AWS, GCP, Heroku, Railway, Render)
+- [ ] Create webhook with production URL (stable, not ngrok)
+- [ ] Set `SECURITY_MODE=production` in environment variables
+- [ ] Configure proper WSGI server (gunicorn, waitress, uwsgi)
+- [ ] Set up log monitoring and alerting
 - [ ] Document token rotation procedure
 - [ ] Test failover scenarios
-- [ ] Monitor webhook health
+- [ ] Monitor webhook health (check status regularly)
+- [ ] Set up health check endpoint monitoring (`/health`)
+- [ ] Configure rate limiting if needed (handled by `SECURITY_MODE=production`)
+- [ ] Document webhook URL update procedure
+- [ ] Test approval flow end-to-end in production environment
 
 ## API Rate Limits
 
@@ -544,7 +601,11 @@ For most approval use cases, you won't hit these limits. If you do:
 - Implement exponential backoff retry logic
 - Consider batching operations if sending many approvals
 
-**Note**: Rate limits are per bot token, so each bot has its own quota.
+**Note**: 
+- Rate limits are per bot token, so each bot has its own quota
+- If you hit rate limits, you'll receive HTTP 429 (Too Many Requests) responses
+- The unified webhook server includes basic rate limiting in production mode
+- For high-volume scenarios, implement exponential backoff retry logic
 
 ## Additional Resources
 
