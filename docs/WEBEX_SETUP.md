@@ -6,17 +6,20 @@ This guide will walk you through setting up a Webex Teams bot for approval notif
 
 - Webex account (free tier works fine)
 - Public HTTPS endpoint (use ngrok for development, or deploy to cloud)
-- Python 3.8+ with webexteamssdk installed
+- Python 3.8+ with `webexteamssdk` installed
+
+**Note**: This guide uses the official `webexteamssdk` package from CiscoDevNet, which is the recommended SDK for Webex Teams API integration.
 
 ## Architecture Overview
 
 Webex bots work via webhooks:
-1. **Bot sends adaptive card** with Approve/Reject buttons
-2. **User clicks button** → Webex creates an `attachmentAction`
-3. **Webhook receives event** → Your server processes the approval
-4. **Approval communicated to MCP server** via file-based IPC
+1. **Bot sends adaptive card** with Approve/Reject buttons to a Webex room or user
+2. **User clicks button** → Webex creates an `attachmentAction` event
+3. **Webhook receives event** → Your webhook server processes the approval
+4. **Approval response written** → File-based IPC (`/tmp/cite-before-act-webex-approval-{id}.json`)
+5. **MCP server reads file** → Approval decision is processed
 
-**Note**: Like Slack, Webex uses simple webhooks - no persistent connection required.
+**Note**: Like Slack, Webex uses simple HTTP webhooks - no persistent connection required. The webhook server receives POST requests when users interact with buttons.
 
 ## Step 1: Create a Webex Bot
 
@@ -36,15 +39,16 @@ Webex bots work via webhooks:
 ### 1.2 Save Bot Credentials
 
 After creating the bot, you'll see:
-- **Bot's Access Token** - This is your `WEBEX_BOT_TOKEN`
-- **Bot Username** - The bot's email address
+- **Bot's Access Token** - This is your `WEBEX_BOT_TOKEN` (starts with something like `Y2lzY29...`)
+- **Bot Username** - The bot's email address (e.g., `cite-before-act-bot@webex.bot`)
 
-**CRITICAL**: Copy the access token immediately - you won't be able to retrieve it later!
+**CRITICAL**: Copy the access token immediately - you won't be able to retrieve it later! The token is only shown once during bot creation.
 
 If you lose it:
 1. Go to your bot in [My Apps](https://developer.webex.com/my-apps)
-2. Click **Regenerate Access Token**
-3. Update your `.env` file with the new token
+2. Click on your bot name
+3. Click **Regenerate Access Token** (or look for the token section)
+4. Copy the new token and update your `.env` file immediately
 
 ## Step 2: Find Room/Space ID or Email
 
@@ -88,14 +92,38 @@ Copy the Room ID and use it as `WEBEX_ROOM_ID`.
 
 Instead of a room, you can send approvals directly to a specific person:
 
-1. Get the person's Webex email address
+1. Get the person's Webex email address (their Webex account email)
 2. Use it as `WEBEX_PERSON_EMAIL` in your `.env` file
 
-**Note**: You can only send messages to people who have interacted with the bot before, or are in the same organization.
+**Important Notes**:
+- The person must have interacted with the bot at least once (e.g., sent a message to the bot)
+- OR they must be in the same organization as the bot
+- For testing, it's often easier to use a room/space instead
+- If using `WEBEX_PERSON_EMAIL`, do NOT set `WEBEX_ROOM_ID` (only one should be set)
 
 ## Step 3: Create Webhook for Attachment Actions
 
-The bot needs a webhook to receive button click events.
+The bot needs a webhook to receive button click events. When a user clicks a button on an adaptive card, Webex sends a webhook POST request to your server with the attachment action details.
+
+**How it works:**
+1. User clicks Approve/Reject button on adaptive card
+2. Webex creates an `attachmentAction` resource
+3. Webex sends webhook POST to your configured URL with payload like:
+   ```json
+   {
+     "id": "webhook-id",
+     "name": "Approval Actions Webhook",
+     "resource": "attachmentActions",
+     "event": "created",
+     "data": {
+       "id": "attachment-action-id-here"
+     }
+   }
+   ```
+4. Your webhook server extracts the attachment action ID from `data.id`
+5. Your server calls Webex API (`api.attachment_actions.get(action_id)`) to get full action details
+6. The full action object contains `inputs` with your button data (`approval_id`, `action`, etc.)
+7. Approval decision is written to file (`/tmp/cite-before-act-webex-approval-{id}.json`) for MCP server to process
 
 ### 3.1 Start Your Webhook Server
 
@@ -120,7 +148,7 @@ Deploy your server to a cloud provider with HTTPS enabled.
 
 ### 3.2 Create the Webhook
 
-You can create the webhook programmatically or via the API.
+You can create the webhook programmatically or via the API. The webhook must listen for `attachmentActions` resource with `created` event.
 
 #### Method A: Using Python
 
@@ -130,15 +158,22 @@ from webexteamssdk import WebexTeamsAPI
 api = WebexTeamsAPI(access_token="YOUR_BOT_TOKEN")
 
 # Create webhook for attachment actions
+# This webhook will fire when users click buttons on adaptive cards
 webhook = api.webhooks.create(
     name="Approval Actions Webhook",
     targetUrl="https://your-url.ngrok.io/webex/interactive",
-    resource="attachmentActions",
-    event="created"
+    resource="attachmentActions",  # Must be "attachmentActions"
+    event="created"                 # Must be "created"
 )
 
 print(f"Webhook created: {webhook.id}")
+print(f"Webhook URL: {webhook.targetUrl}")
 ```
+
+**Important**: 
+- The `targetUrl` must be publicly accessible via HTTPS
+- The endpoint should be `/webex/interactive` (as configured in the unified webhook server)
+- Webex will send POST requests to this URL when users click buttons
 
 #### Method B: Using curl
 
@@ -170,7 +205,7 @@ webhook_id = handler.create_webhook(
 
 ### 3.3 Verify Webhook
 
-List your webhooks to verify:
+List your webhooks to verify they're set up correctly:
 
 ```python
 from webexteamssdk import WebexTeamsAPI
@@ -183,9 +218,16 @@ for wh in webhooks:
     print(f"URL: {wh.targetUrl}")
     print(f"Resource: {wh.resource}")
     print(f"Event: {wh.event}")
-    print(f"Status: {wh.status}")
+    print(f"Status: {wh.status}")  # Should be "active"
+    print(f"ID: {wh.id}")
     print("---")
 ```
+
+**What to check**:
+- `resource` should be `"attachmentActions"`
+- `event` should be `"created"`
+- `status` should be `"active"` (if it's `"inactive"`, there may be connectivity issues)
+- `targetUrl` should match your webhook server URL
 
 ## Step 4: Configure Cite-Before-Act MCP
 
@@ -311,60 +353,139 @@ for room in rooms:
 ### Webhook not receiving events
 
 **Check:**
-- Webhook URL is correct and publicly accessible
-- URL uses HTTPS (required by Webex)
+- Webhook URL is correct and publicly accessible (test with `curl` or browser)
+- URL uses HTTPS (required by Webex - HTTP will be rejected)
 - Webhook is for resource `attachmentActions` and event `created`
-- Webhook status is `active`
+- Webhook status is `active` (not `inactive`)
+- Your webhook server is running and accessible
+- Firewall/network allows incoming POST requests
 
-**Test webhook:**
+**Test webhook endpoint:**
 ```bash
-curl https://your-url/webex/interactive
-# Should return 200 or 404, but not connection refused
+# Test if endpoint is accessible
+curl -X POST https://your-url/webex/interactive \
+  -H "Content-Type: application/json" \
+  -d '{"test": "data"}'
+# Should return a response (even if error), not connection refused
 ```
 
 **Check webhook status:**
 ```python
+from webexteamssdk import WebexTeamsAPI
+
 api = WebexTeamsAPI(access_token="YOUR_TOKEN")
 webhooks = api.webhooks.list()
 for wh in webhooks:
-    print(f"Status: {wh.status}")
+    if wh.resource == "attachmentActions":
+        print(f"Status: {wh.status}")
+        print(f"URL: {wh.targetUrl}")
+        if wh.status != "active":
+            print("⚠️ Webhook is not active! Check your server connectivity.")
 ```
+
+**Common issues:**
+- If webhook status becomes `inactive`, Webex couldn't reach your server. Fix server issues and recreate the webhook.
+- Webex automatically deletes webhooks that fail repeatedly (usually after multiple failed delivery attempts).
 
 ### "Invalid access token" errors
 
 **Check:**
-- Token hasn't expired (regenerate if needed)
-- Token is for a bot, not a personal access token
-- Token has `spark:all` scope (bot tokens have this by default)
+- Token is correct (no extra spaces, copied completely)
+- Token is for a bot, not a personal access token (bot tokens start with `Y2lzY29...`)
+- Token hasn't been regenerated (if you regenerated it, old token is invalid)
+- Token has proper scopes (bot tokens have `spark:all` by default)
+
+**Test token validity:**
+```python
+from webexteamssdk import WebexTeamsAPI
+from webexteamssdk.exceptions import ApiError
+
+try:
+    api = WebexTeamsAPI(access_token="YOUR_TOKEN")
+    me = api.people.me()
+    print(f"✅ Token valid! Bot name: {me.displayName}")
+except ApiError as e:
+    print(f"❌ Token invalid: {e}")
+```
 
 **Regenerate token:**
 1. Go to [My Apps](https://developer.webex.com/my-apps)
-2. Click on your bot
-3. Click **Regenerate Access Token**
-4. Update `.env` file
+2. Click on your bot name
+3. Look for the **Access Token** section
+4. Click **Regenerate** or **Copy** (depending on UI)
+5. **Immediately** update your `.env` file with the new token
+6. Restart your webhook server and MCP server
 
 ### Adaptive card doesn't show buttons
 
 **Check:**
-- Using correct adaptive card format (see WebexClient code)
-- Card version is 1.3 or lower (Webex supports up to 1.3)
-- `Action.Submit` is used for buttons (not `Action.Execute` which is Teams-specific)
+- Using correct adaptive card format (see `cite_before_act/webex/client.py`)
+- Card version is `1.3` or lower (Webex supports up to 1.3, code uses 1.3)
+- `Action.Submit` is used for buttons (not `Action.Execute` which is Microsoft Teams-specific)
+- Card structure follows Webex's adaptive card requirements
+- Buttons are in the `actions` array of the card
+
+**Verify card format:**
+The card should have this structure:
+```json
+{
+  "type": "AdaptiveCard",
+  "version": "1.3",
+  "body": [...],
+  "actions": [
+    {
+      "type": "Action.Submit",
+      "title": "✅ Approve",
+      "data": {
+        "action": "approve",
+        "approval_id": "..."
+      }
+    }
+  ]
+}
+```
+
+**Note**: Webex uses adaptive cards version 1.3. Newer versions (1.4+) are not supported.
 
 ### Approval response not processed
 
 **Check:**
-- Webhook server is receiving the POST request (check logs)
-- Attachment action ID is valid
-- File is being written to `/tmp/cite-before-act-webex-approval-{id}.json`
-- MCP server's cleanup task is reading the file
+- Webhook server is receiving the POST request (check server logs for incoming requests)
+- Webhook handler is processing the attachment action (check for "Webex approval response received" in logs)
+- Attachment action ID is valid (webhook payload contains `data.id`)
+- File is being written to `/tmp/cite-before-act-webex-approval-{approval_id}.json`
+- MCP server's file watcher is reading the file (check MCP server logs)
+- Approval ID matches between request and response
 
-**Debug:**
+**Debug webhook payload:**
+Add logging to see what Webex is sending:
+```python
+# In your webhook handler, add:
+print(f"Webhook payload: {json.dumps(webhook_data, indent=2)}")
+```
+
+**Debug file-based approval:**
 ```bash
 # Check for approval files
 ls -la /tmp/cite-before-act-webex-approval-*.json
 
-# Watch in real-time
+# Watch in real-time (Linux/macOS)
 watch -n 1 'ls -la /tmp/cite-before-act-webex-approval-*.json'
+
+# Or manually check (macOS)
+ls -la /tmp/cite-before-act-webex-approval-*.json
+
+# View file contents
+cat /tmp/cite-before-act-webex-approval-{approval_id}.json
+```
+
+**Expected file format:**
+```json
+{
+  "approved": true,
+  "platform": "webex",
+  "timestamp": "2024-01-01T12:00:00Z"
+}
 ```
 
 ## Common Issues and Solutions
@@ -412,20 +533,29 @@ watch -n 1 'ls -la /tmp/cite-before-act-webex-approval-*.json'
 
 ## API Rate Limits
 
-Webex has rate limits:
+Webex has rate limits that apply to API calls:
 - **Messages**: 10,000 per 10 minutes per bot
-- **Webhooks**: 100 per 10 minutes per bot
-- **Attachment Actions**: No specific limit, but general API limits apply
+- **Webhooks**: 100 create/update/delete operations per 10 minutes per bot
+- **Attachment Actions**: No specific limit, but subject to general API rate limits
+- **General API**: 10 requests per second per bot (burst up to 20)
 
-For most approval use cases, you won't hit these limits.
+For most approval use cases, you won't hit these limits. If you do:
+- You'll receive HTTP 429 (Too Many Requests) responses
+- Implement exponential backoff retry logic
+- Consider batching operations if sending many approvals
+
+**Note**: Rate limits are per bot token, so each bot has its own quota.
 
 ## Additional Resources
 
-- [Webex for Developers](https://developer.webex.com/)
-- [Buttons and Cards Guide](https://developer.webex.com/docs/buttons-and-cards)
-- [Adaptive Cards Designer](https://adaptivecards.io/designer/)
-- [Webex Python SDK](https://github.com/CiscoDevNet/webexteamssdk)
-- [Webhooks API Reference](https://developer.webex.com/docs/api/v1/webhooks)
+- [Webex for Developers](https://developer.webex.com/) - Main developer portal
+- [Webex REST API Documentation](https://developer.webex.com/docs/api/v1) - Complete API reference
+- [Buttons and Cards Guide](https://developer.webex.com/docs/buttons-and-cards) - How to create interactive cards
+- [Adaptive Cards Designer](https://adaptivecards.io/designer/) - Visual card designer (use version 1.3 for Webex)
+- [Webex Python SDK (webexteamssdk)](https://github.com/CiscoDevNet/webexteamssdk) - Official Python SDK
+- [Webhooks API Reference](https://developer.webex.com/docs/api/v1/webhooks) - Webhook setup and management
+- [Attachment Actions API](https://developer.webex.com/docs/api/v1/attachment-actions) - How attachment actions work
+- [Webex Bot Getting Started](https://developer.webex.com/docs/bots) - Bot development guide
 
 ## Next Steps
 
