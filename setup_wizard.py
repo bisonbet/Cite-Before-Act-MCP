@@ -780,14 +780,21 @@ def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], webex_con
             pass
 
         # If adding GitHub server and token not in .env, append it
-        if upstream_config.get("github_token") and not has_github_token:
+        if upstream_config.get("github_token") is not None and not has_github_token:
             print(f"\nAdding GitHub token to existing .env file...")
             try:
                 with open(env_path, "a") as f:
-                    f.write("\n# GitHub Personal Access Token (global secret)\n")
-                    f.write("# This is automatically used by all servers that need GitHub access\n")
-                    f.write(f"GITHUB_PERSONAL_ACCESS_TOKEN={upstream_config['github_token']}\n")
-                print_success(f"Added GitHub token to .env file: {env_path}")
+                    f.write("\n# -----------------------------------------------------------------------------\n")
+                    f.write("# GitHub Configuration (Global)\n")
+                    f.write("# -----------------------------------------------------------------------------\n")
+                    f.write("# GitHub Personal Access Token (global secret)\n")
+                    f.write("# Get from: https://github.com/settings/tokens\n")
+                    f.write("# Required scopes: repo, workflow, write:packages, delete:packages, admin:org\n")
+                    if upstream_config.get("github_token"):
+                        f.write(f"GITHUB_PERSONAL_ACCESS_TOKEN={upstream_config['github_token']}\n")
+                    else:
+                        f.write("GITHUB_PERSONAL_ACCESS_TOKEN=\n")
+                print_success(f"Added GitHub configuration to .env file: {env_path}")
                 return
             except Exception as e:
                 print_error(f"Could not append to .env: {e}")
