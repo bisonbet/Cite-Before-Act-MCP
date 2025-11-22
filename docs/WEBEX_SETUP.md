@@ -29,7 +29,7 @@ Webex bots work via webhooks:
 5. Fill in the details:
    - **Bot name**: `Cite-Before-Act Approval Bot`
    - **Bot username**: `cite-before-act-bot` (must be unique)
-   - **Icon**: Upload an icon (192x192 px recommended)
+   - **Icon**: Upload an icon (512x512 px required)
    - **App Hub Description**: `Bot for approving MCP tool actions`
 6. Click **Add Bot**
 
