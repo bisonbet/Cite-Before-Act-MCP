@@ -514,13 +514,14 @@ def configure_teams() -> Dict[str, Any]:
 
     print("\n📱 Microsoft Teams setup is more complex than Slack/Webex:")
     print("1. Requires Azure Bot Service")
-    print("2. Requires App Registration in Azure AD")
+    print("2. Requires App Registration in Microsoft Entra ID")
     print("3. Requires Bot Framework SDK")
     print("\n📚 For detailed setup instructions, see: docs/TEAMS_SETUP.md")
 
     print("\n🔑 To get your Teams credentials:")
     print("1. Go to Azure Portal: https://portal.azure.com")
-    print("2. Create App Registration in Azure AD")
+    print("2. Create App Registration in Microsoft Entra ID")
+    print("   (Note: Microsoft Entra ID is the new name for Azure Active Directory)")
     print("3. Generate client secret (save immediately!)")
     print("4. Create Azure Bot resource")
     print("5. Configure messaging endpoint (your webhook URL)")

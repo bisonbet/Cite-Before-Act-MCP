@@ -14,21 +14,35 @@ This guide will walk you through setting up a Microsoft Teams bot for approval n
 
 Unlike Slack and Webex which use simple webhooks, Microsoft Teams requires:
 1. **Azure Bot Service** - Manages bot authentication and message routing
-2. **App Registration** - Provides App ID and Password for authentication
+2. **App Registration** - Provides App ID and Password for authentication (created in Microsoft Entra ID)
 3. **Messaging Endpoint** - Public HTTPS URL where your bot receives messages
 4. **Bot Framework SDK** - Handles bot protocol and adaptive cards
 
 **Important**: Despite being more complex, Teams bots work via webhooks just like Slack/Webex - they don't maintain persistent connections. Teams sends HTTP POST requests to your bot's endpoint.
 
+**Note on Bot Types**: Microsoft has announced that multi-tenant bot creation will be deprecated after July 31, 2025. For new bots, consider using **single-tenant** or **user-assigned managed identity** bot types. Existing multi-tenant bots will continue to function after the deprecation date.
+
+**Note on Account Types**: If you need to support personal Microsoft accounts (@outlook.com, @hotmail.com), you must select the account type that includes "personal Microsoft accounts" during app registration (see Step 1.1). This option is still multi-tenant and subject to the deprecation notice above, but it's the only way to support personal accounts.
+
 ## Step 1: Create Azure Bot Registration
 
-### 1.1 Register an Application in Azure AD
+**Note**: Microsoft has rebranded "Azure Active Directory" to "Microsoft Entra ID". All references in this guide use the current terminology.
+
+### 1.1 Register an Application in Microsoft Entra ID
 
 1. Go to [Azure Portal](https://portal.azure.com)
-2. Navigate to **Azure Active Directory** → **App registrations**
+2. Navigate to **Microsoft Entra ID** → **App registrations**
+   - **Note**: Microsoft Entra ID is the new name for Azure Active Directory (Azure AD)
 3. Click **New registration**
    - Name: `Cite-Before-Act Approval Bot`
-   - Supported account types: `Accounts in any organizational directory (Any Azure AD directory - Multitenant)`
+   - Supported account types: Choose based on your needs:
+     - **For personal Microsoft accounts** (@outlook.com, @hotmail.com) **and** organizational accounts:
+       - Select: `Accounts in any organizational directory (Any Microsoft Entra ID tenant - Multitenant) and personal Microsoft accounts (e.g. Skype, Xbox)`
+     - **For organizational accounts only**:
+       - Select: `Accounts in any organizational directory (Any Microsoft Entra directory - Multitenant)`
+       - **Note**: Multi-tenant bot creation will be deprecated after July 31, 2025. For new bots, consider using **Single tenant** instead.
+     - **For single organization only**:
+       - Select: `Accounts in this organizational directory only (Single tenant)`
    - Redirect URI: Leave blank for now
 4. Click **Register**
 
@@ -90,10 +104,12 @@ teams-app-manifest/
 
 **manifest.json** (replace `YOUR_APP_ID` with your actual App ID from Step 1.2):
 
+**Note**: This example uses manifest version 1.19 (September 2024). You can use a newer version if available. See the [Teams App Manifest Schema documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/resources/schema/manifest-schema) for the latest version.
+
 ```json
 {
-  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.14/MicrosoftTeams.schema.json",
-  "manifestVersion": "1.14",
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.19",
   "version": "1.0.0",
   "id": "YOUR_APP_ID",
   "packageName": "com.example.citebeforeactbot",
@@ -318,7 +334,7 @@ curl -X POST https://your-url/api/messages \
 **Check:**
 - `TEAMS_APP_ID` matches the App ID in Azure
 - `TEAMS_APP_PASSWORD` is correct (the secret value, not the ID)
-- Secret hasn't expired (check Azure Portal → App Registration → Certificates & secrets)
+- Secret hasn't expired (check Azure Portal → Microsoft Entra ID → App registrations → Your app → Certificates & secrets)
 - Webhook server logs for authentication errors
 
 ### Adaptive card doesn't update after clicking button
@@ -397,12 +413,14 @@ Send the bot a message in the target channel/chat to store the conversation refe
 
 - [Microsoft Teams Bot Framework Documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/what-are-bots)
 - [Azure Bot Service Documentation](https://learn.microsoft.com/en-us/azure/bot-service/bot-service-overview-introduction)
+- [Microsoft Entra ID Documentation](https://learn.microsoft.com/en-us/entra/)
 - [Bot Framework Python SDK](https://github.com/microsoft/botbuilder-python)
 - [Bot Framework Python Samples](https://github.com/microsoft/botbuilder-python/tree/main/samples)
 - [Teams App Manifest Schema](https://learn.microsoft.com/en-us/microsoftteams/platform/resources/schema/manifest-schema)
 - [Adaptive Cards Documentation](https://adaptivecards.io/)
 - [Adaptive Cards Designer](https://adaptivecards.io/designer/) - Test card designs
 - [Bot Framework Authentication](https://learn.microsoft.com/en-us/azure/bot-service/bot-builder-authentication)
+- [Bot Identity Types (Multi-tenant deprecation notice)](https://learn.microsoft.com/en-us/azure/bot-service/bot-service-manage-settings?view=azure-bot-service-4.0&tabs=userassigned#configuration)
 
 ## Next Steps
 
