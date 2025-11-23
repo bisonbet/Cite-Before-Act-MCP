@@ -140,11 +140,8 @@ class WebexHandler:
                     f"❌ Error in Webex approval callback: {e}",
                     file=sys.stderr
                 )
-        else:
-            print(
-                f"⚠️ No Webex callback registered for {approval_id[:8]}...",
-                file=sys.stderr
-            )
+        # Note: No warning if callback not registered - this is normal when using
+        # file-based IPC (webhook server writes to file instead of using callbacks)
 
     def unregister_callback(self, approval_id: str) -> None:
         """
