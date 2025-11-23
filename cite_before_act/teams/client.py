@@ -137,6 +137,15 @@ class TeamsClient:
             )
             return False
 
+        print(
+            f"🔍 DEBUG: Attempting to send Teams approval to conversation: {self.conversation_reference.conversation.id}",
+            file=sys.stderr,
+        )
+        print(
+            f"🔍 DEBUG: Service URL: {self.conversation_reference.service_url}",
+            file=sys.stderr,
+        )
+
         try:
             # Build the adaptive card
             card_content = self._build_approval_card(
@@ -155,9 +164,27 @@ class TeamsClient:
                 text=f"Approval Required: {tool_name}",
             )
 
+            print(
+                f"🔍 DEBUG: Built activity with {len(activity.attachments)} attachment(s)",
+                file=sys.stderr,
+            )
+
             # Send proactive message
             async def send_activity(turn_context: TurnContext):
+                print(
+                    f"🔍 DEBUG: Inside send_activity callback, sending to conversation: {turn_context.activity.conversation.id}",
+                    file=sys.stderr,
+                )
                 await turn_context.send_activity(activity)
+                print(
+                    f"🔍 DEBUG: Activity sent successfully",
+                    file=sys.stderr,
+                )
+
+            print(
+                f"🔍 DEBUG: Calling continue_conversation with app_id: {self.adapter.settings.app_id[:8]}...",
+                file=sys.stderr,
+            )
 
             await self.adapter.continue_conversation(
                 self.conversation_reference,
@@ -173,8 +200,13 @@ class TeamsClient:
             return True
 
         except Exception as e:
+            import traceback
             print(
                 f"❌ Failed to send Teams approval request: {e}",
+                file=sys.stderr,
+            )
+            print(
+                f"🔍 DEBUG: Full traceback:\n{traceback.format_exc()}",
                 file=sys.stderr,
             )
             return False
