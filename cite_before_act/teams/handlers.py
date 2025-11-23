@@ -154,7 +154,32 @@ class TeamsHandler(ActivityHandler):
                 file=sys.stderr,
             )
 
-            # Trigger the registered callback
+            # Write approval response to file for MCP server to read
+            # (webhook server and MCP server are separate processes)
+            import json
+            import time
+            approval_file = f"/tmp/cite-before-act-teams-approval-{approval_id}.json"
+            try:
+                with open(approval_file, "w") as f:
+                    json.dump({
+                        "approval_id": approval_id,
+                        "approved": approved,
+                        "platform": "teams",
+                        "timestamp": time.time(),
+                    }, f)
+                print(
+                    f"Wrote teams approval: {approval_id} -> {approved}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            except Exception as write_error:
+                print(
+                    f"Error writing teams approval file: {write_error}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+            # Trigger the registered callback (for in-process handlers)
             self._trigger_callback(approval_id, approved)
 
             # Build response card
