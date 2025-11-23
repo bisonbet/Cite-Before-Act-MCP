@@ -105,66 +105,66 @@ def create_teams_adapter(
                         file=os.sys.stderr,
                     )
                     if MicrosoftAppCredentials:
-                        # Create tenant-specific credentials as fallback
-                        # The authority should be just the base URL, not the full token endpoint
+                        # Try to create tenant-specific credentials
+                        # Note: MicrosoftAppCredentials may not support tenant configuration directly
+                        # We'll try to set attributes, but if they don't exist, we'll skip injection
                         tenant_authority = f"https://login.microsoftonline.com/{tenant_id}"
-                        # MicrosoftAppCredentials only accepts app_id and password
                         tenant_credentials = MicrosoftAppCredentials(
                             app_id=app_id,
                             password=app_password,
                         )
                         
-                        # Set authority first - this is the key configuration
-                        # The SDK will construct the OAuth endpoint from the authority
+                        # Check what attributes are actually available
+                        available_attrs = [attr for attr in dir(tenant_credentials) 
+                                         if not attr.startswith('_') and not callable(getattr(tenant_credentials, attr, None))]
+                        
+                        # Try to set authority (preferred method)
                         authority_set = False
                         if hasattr(tenant_credentials, 'authority'):
-                            tenant_credentials.authority = tenant_authority
-                            authority_set = True
-                            print(
-                                f"   ✓ Set authority: {tenant_authority}",
-                                file=os.sys.stderr,
-                            )
+                            try:
+                                tenant_credentials.authority = tenant_authority
+                                authority_set = True
+                                print(
+                                    f"   ✓ Set authority: {tenant_authority}",
+                                    file=os.sys.stderr,
+                                )
+                            except Exception as e:
+                                print(
+                                    f"   ⚠️ Could not set authority: {e}",
+                                    file=os.sys.stderr,
+                                )
                         
-                        # Only set OAuth endpoint if authority wasn't available
-                        # If authority is set, the SDK should construct the endpoint automatically
+                        # If authority wasn't set, we can't properly configure tenant-specific auth
+                        # Setting OAuth endpoint to full token URL causes the SDK to treat it as authority (wrong)
                         if not authority_set:
-                            oauth_endpoint = f"{tenant_authority}/oauth2/v2.0/token"
-                            if hasattr(tenant_credentials, 'o_auth_endpoint'):
-                                tenant_credentials.o_auth_endpoint = oauth_endpoint
-                                print(
-                                    f"   ✓ Set o_auth_endpoint: {oauth_endpoint}",
-                                    file=os.sys.stderr,
-                                )
-                            elif hasattr(tenant_credentials, 'oauth_endpoint'):
-                                tenant_credentials.oauth_endpoint = oauth_endpoint
-                                print(
-                                    f"   ✓ Set oauth_endpoint: {oauth_endpoint}",
-                                    file=os.sys.stderr,
-                                )
-                            else:
-                                print(
-                                    f"   ⚠️ Warning: Could not set authority or OAuth endpoint",
-                                    file=os.sys.stderr,
-                                )
-                        
-                        # Set OAuth scope if the attribute exists
-                        if hasattr(tenant_credentials, 'o_auth_scope'):
-                            tenant_credentials.o_auth_scope = "https://api.botframework.com/.default"
                             print(
-                                f"   ✓ Set o_auth_scope: https://api.botframework.com/.default",
+                                f"   ⚠️ Warning: MicrosoftAppCredentials doesn't support 'authority' attribute.",
                                 file=os.sys.stderr,
                             )
-                        elif hasattr(tenant_credentials, 'oauth_scope'):
-                            tenant_credentials.oauth_scope = "https://api.botframework.com/.default"
                             print(
-                                f"   ✓ Set oauth_scope: https://api.botframework.com/.default",
+                                f"   ⚠️ Warning: Cannot configure tenant-specific authentication via credentials.",
                                 file=os.sys.stderr,
                             )
-                        
-                        print(
-                            f"✅ Created tenant-specific credentials for tenant: {tenant_id}",
-                            file=os.sys.stderr,
-                        )
+                            print(
+                                f"   💡 Your Bot Framework SDK version may not support tenant-specific auth.",
+                                file=os.sys.stderr,
+                            )
+                            print(
+                                f"   💡 For single-tenant bots, ensure your Azure App Registration is configured",
+                                file=os.sys.stderr,
+                            )
+                            print(
+                                f"   💡 as 'Single tenant' and the bot may authenticate correctly without this config.",
+                                file=os.sys.stderr,
+                            )
+                            # Don't use these credentials - let the adapter use its default
+                            # The adapter will create credentials from settings, which may work for single-tenant
+                            tenant_credentials = None
+                        else:
+                            print(
+                                f"✅ Created tenant-specific credentials for tenant: {tenant_id}",
+                                file=os.sys.stderr,
+                            )
         except Exception as e:
             print(
                 f"⚠️ Warning: Could not configure tenant-specific authentication: {e}",
