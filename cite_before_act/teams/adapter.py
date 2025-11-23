@@ -106,25 +106,61 @@ def create_teams_adapter(
                     )
                     if MicrosoftAppCredentials:
                         # Create tenant-specific credentials as fallback
+                        # The authority should be just the base URL, not the full token endpoint
                         tenant_authority = f"https://login.microsoftonline.com/{tenant_id}"
                         # MicrosoftAppCredentials only accepts app_id and password
                         tenant_credentials = MicrosoftAppCredentials(
                             app_id=app_id,
                             password=app_password,
                         )
-                        # Try to set OAuth endpoint and scope after creation
-                        if hasattr(tenant_credentials, 'o_auth_endpoint'):
-                            tenant_credentials.o_auth_endpoint = f"{tenant_authority}/oauth2/v2.0/token"
-                        elif hasattr(tenant_credentials, 'oauth_endpoint'):
-                            tenant_credentials.oauth_endpoint = f"{tenant_authority}/oauth2/v2.0/token"
+                        
+                        # Set authority first - this is the key configuration
+                        # The SDK will construct the OAuth endpoint from the authority
+                        authority_set = False
+                        if hasattr(tenant_credentials, 'authority'):
+                            tenant_credentials.authority = tenant_authority
+                            authority_set = True
+                            print(
+                                f"   ✓ Set authority: {tenant_authority}",
+                                file=os.sys.stderr,
+                            )
+                        
+                        # Only set OAuth endpoint if authority wasn't available
+                        # If authority is set, the SDK should construct the endpoint automatically
+                        if not authority_set:
+                            oauth_endpoint = f"{tenant_authority}/oauth2/v2.0/token"
+                            if hasattr(tenant_credentials, 'o_auth_endpoint'):
+                                tenant_credentials.o_auth_endpoint = oauth_endpoint
+                                print(
+                                    f"   ✓ Set o_auth_endpoint: {oauth_endpoint}",
+                                    file=os.sys.stderr,
+                                )
+                            elif hasattr(tenant_credentials, 'oauth_endpoint'):
+                                tenant_credentials.oauth_endpoint = oauth_endpoint
+                                print(
+                                    f"   ✓ Set oauth_endpoint: {oauth_endpoint}",
+                                    file=os.sys.stderr,
+                                )
+                            else:
+                                print(
+                                    f"   ⚠️ Warning: Could not set authority or OAuth endpoint",
+                                    file=os.sys.stderr,
+                                )
+                        
                         # Set OAuth scope if the attribute exists
                         if hasattr(tenant_credentials, 'o_auth_scope'):
                             tenant_credentials.o_auth_scope = "https://api.botframework.com/.default"
+                            print(
+                                f"   ✓ Set o_auth_scope: https://api.botframework.com/.default",
+                                file=os.sys.stderr,
+                            )
                         elif hasattr(tenant_credentials, 'oauth_scope'):
                             tenant_credentials.oauth_scope = "https://api.botframework.com/.default"
-                        # Set authority if available
-                        if hasattr(tenant_credentials, 'authority'):
-                            tenant_credentials.authority = tenant_authority
+                            print(
+                                f"   ✓ Set oauth_scope: https://api.botframework.com/.default",
+                                file=os.sys.stderr,
+                            )
+                        
                         print(
                             f"✅ Created tenant-specific credentials for tenant: {tenant_id}",
                             file=os.sys.stderr,
