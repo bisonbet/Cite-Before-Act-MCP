@@ -529,6 +529,20 @@ def configure_teams() -> Dict[str, Any]:
     config["app_id"] = prompt("\nTeams App ID (Application/Client ID)")
     config["app_password"] = prompt("Teams App Password (Client Secret)")
 
+    # Tenant ID (REQUIRED for proper authentication)
+    print("\n🔑 Tenant ID (HIGHLY RECOMMENDED):")
+    print("   Without this, you may get authentication errors like:")
+    print("   'Application not found in directory Bot Framework'")
+    print("   ")
+    print("   To find your Tenant ID:")
+    print("   1. Go to Azure Portal → Microsoft Entra ID → App registrations")
+    print("   2. Click on your app")
+    print("   3. On the Overview page, copy 'Directory (tenant) ID'")
+
+    tenant_id = prompt("\nTeams Tenant ID (Directory ID) - press Enter to skip, but authentication may fail", "")
+    if tenant_id:
+        config["tenant_id"] = tenant_id
+
     # Optional: Service URL and conversation reference
     print("\n📝 Optional settings:")
     service_url = prompt("Teams Service URL (press Enter for default)", "https://smba.trafficmanager.net/amer/")
@@ -890,16 +904,43 @@ def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], webex_con
     if teams_config["enabled"]:
         lines.extend([
             "",
-            "# -----------------------------------------------------------------------------",
-            "# Microsoft Teams Configuration (Global)",
-            "# -----------------------------------------------------------------------------",
+            "# Enable Microsoft Teams",
+            "ENABLE_TEAMS=true",
+            "",
+            "# Teams Bot Credentials",
             f"TEAMS_APP_ID={teams_config['app_id']}",
             f"TEAMS_APP_PASSWORD={teams_config['app_password']}",
-            f"ENABLE_TEAMS=true",
         ])
 
+        # Add tenant ID if provided (HIGHLY RECOMMENDED)
+        if teams_config.get("tenant_id"):
+            lines.extend([
+                "",
+                "# Tenant ID (HIGHLY RECOMMENDED - prevents authentication errors)",
+                "# Found on Overview page as 'Directory (tenant) ID'",
+                f"TEAMS_TENANT_ID={teams_config['tenant_id']}",
+            ])
+        else:
+            lines.extend([
+                "",
+                "# Optional: Tenant ID (recommended - found on Overview page as \"Directory (tenant) ID\")",
+                "# TEAMS_TENANT_ID=your-tenant-id",
+            ])
+
+        # Add service URL if provided
         if teams_config.get("service_url"):
-            lines.append(f"TEAMS_SERVICE_URL={teams_config['service_url']}")
+            lines.extend([
+                "",
+                "# Optional: Service URL (usually default is fine)",
+                f"TEAMS_SERVICE_URL={teams_config['service_url']}",
+            ])
+
+        # Add conversation ID placeholder
+        lines.extend([
+            "",
+            "# Optional: Pre-configure conversation (will auto-detect otherwise)",
+            "# TEAMS_CONVERSATION_ID=your-channel-or-chat-id",
+        ])
 
     # Webhook hosting configuration (applies to all platforms)
     any_webhook = (slack_config.get("webhook_enabled") or
