@@ -46,17 +46,22 @@ Unlike Slack and Webex which use simple webhooks, Microsoft Teams requires:
    - Redirect URI: Leave blank for now
 4. Click **Register**
 
-### 1.2 Generate Client Secret
+### 1.2 Get App Credentials
 
-1. In your new app registration, go to **Certificates & secrets**
-2. Click **New client secret**
-   - Description: `Bot password`
-   - Expires: Choose your preferred expiration (recommend 12-24 months)
-3. Click **Add**
-4. **CRITICAL**: Copy the **Value** immediately - you won't be able to see it again!
-   - This is your `TEAMS_APP_PASSWORD`
-5. Also copy the **Application (client) ID** from the Overview page
-   - This is your `TEAMS_APP_ID`
+1. **Get Application (client) ID and Directory (tenant) ID**:
+   - In your app registration, go to the **Overview** page (should be the default page)
+   - Copy the **Application (client) ID** - This is your `TEAMS_APP_ID`
+   - Copy the **Directory (tenant) ID** - This is your `TEAMS_TENANT_ID` (optional but recommended)
+   - **Note**: The Directory (tenant) ID is also called "App tenant ID" or "Tenant ID"
+
+2. **Generate Client Secret**:
+   - Go to **Certificates & secrets** in the left menu
+   - Click **New client secret**
+     - Description: `Bot password`
+     - Expires: Choose your preferred expiration (recommend 12-24 months)
+   - Click **Add**
+   - **CRITICAL**: Copy the **Value** immediately - you won't be able to see it again!
+     - This is your `TEAMS_APP_PASSWORD`
 
 ### 1.3 Create Azure Bot
 
@@ -80,7 +85,10 @@ Unlike Slack and Webex which use simple webhooks, Microsoft Teams requires:
    - For development: `https://your-ngrok-url.ngrok.io/api/messages`
    - For production: `https://your-domain.com/api/messages`
    - **Important**: Must be HTTPS (Teams requires secure connections)
-5. Click **Apply** or **Save** to save the configuration
+5. **Enable streaming endpoint**: Leave this **unchecked/disabled**
+   - Streaming endpoints are only needed for real-time audio/video streaming
+   - This approval bot only handles text messages and adaptive cards, so streaming is not required
+6. Click **Apply** or **Save** to save the configuration
 
 ## Step 2: Add Bot to Microsoft Teams
 
@@ -167,11 +175,20 @@ zip -r ../teams-app-manifest.zip *
 ### 2.3 Upload to Teams
 
 1. Open Microsoft Teams
-2. Click **Apps** in the left sidebar
-3. Click **Manage your apps** (bottom left)
-4. Click **Upload an app** → **Upload a custom app**
+2. Access the Apps section using one of these methods:
+   - **Method 1**: Click **Apps** in the left sidebar (if visible)
+   - **Method 2**: Click the **three dots (⋯)** or **More options** menu at the bottom of the left sidebar, then select **Apps**
+   - **Method 3**: Use the search bar at the top and search for "Apps"
+   - **Method 4**: In some Teams versions, click **Built by your org** or **More apps** at the bottom left
+3. Once in the Apps view, look for **Upload a custom app** or **Manage your apps**:
+   - This may be at the bottom left of the Apps page
+   - Or click the **three dots (⋯)** menu in the Apps view and select **Upload a custom app**
+   - Some versions show **"Built by your org"** → **"Upload a custom app"**
+4. Click **Upload a custom app** (or **Upload an app** → **Upload a custom app**)
 5. Select your `teams-app-manifest.zip` file
 6. Click **Add** to add the bot to a team/chat
+
+**Note**: The exact location of the upload option varies by Teams version and organization settings. If you don't see these options, your organization may have restricted custom app uploads. Contact your Teams administrator if needed.
 
 ## Step 3: Configure Cite-Before-Act MCP
 
@@ -187,12 +204,14 @@ ENABLE_TEAMS=true
 TEAMS_APP_ID=your-app-id-from-step-1.2
 TEAMS_APP_PASSWORD=your-app-password-from-step-1.2
 
+# Optional: Tenant ID (recommended - found on Overview page as "Directory (tenant) ID")
+TEAMS_TENANT_ID=your-tenant-id-from-step-1.2
+
 # Optional: Service URL (usually default is fine)
 TEAMS_SERVICE_URL=https://smba.trafficmanager.net/amer/
 
 # Optional: Pre-configure conversation (will auto-detect otherwise)
 # TEAMS_CONVERSATION_ID=your-channel-or-chat-id
-# TEAMS_TENANT_ID=your-tenant-id
 ```
 
 ### 3.2 Install Dependencies
@@ -280,9 +299,9 @@ If you want to pre-configure the conversation ID to avoid needing to store refer
    ```bash
    TEAMS_CONVERSATION_ID=19:xxxxx...
    ```
-7. If you know your tenant ID, you can also add:
+7. If you haven't already added it, add your tenant ID (found in Step 1.2 on the Overview page as "Directory (tenant) ID"):
    ```bash
-   TEAMS_TENANT_ID=your-tenant-id
+   TEAMS_TENANT_ID=your-tenant-id-from-step-1.2
    ```
 
 **Alternative**: Extract from webhook server logs when the bot receives a message - the conversation ID will be in the activity JSON.
@@ -356,6 +375,27 @@ curl -X POST https://your-url/api/messages \
 Send the bot a message in the target channel/chat to store the conversation reference.
 
 ## Common Issues and Solutions
+
+### Issue: Can't find "Apps" in Teams sidebar
+
+**Symptoms:**
+- "Apps" option is not visible in the left sidebar
+- Can't find where to upload custom apps
+
+**Solutions:**
+1. **Check Teams version**: Update Microsoft Teams to the latest version
+2. **Try alternative access methods**:
+   - Click the **three dots (⋯)** or **More options** menu at the bottom of the left sidebar
+   - Look for **"Built by your org"** or **"More apps"** at the bottom left
+   - Use the search bar at the top and search for "Apps"
+3. **Check organization policies**: Your organization may have restricted custom app uploads
+   - Contact your Teams administrator to enable custom app uploads
+   - Some organizations require admin approval for custom apps
+4. **Try Teams web version**: Sometimes the web version (teams.microsoft.com) has different UI
+5. **Check account type**: Personal Microsoft accounts may have limited app management features
+   - Organizational accounts typically have full access to app management
+
+**Alternative**: If you have admin access, you can also upload apps via the [Teams Admin Center](https://admin.teams.microsoft.com/) under **Teams apps** → **Manage apps**.
 
 ### Issue: Bot manifest upload fails
 
