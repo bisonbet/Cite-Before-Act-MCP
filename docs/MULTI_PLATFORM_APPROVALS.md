@@ -46,16 +46,20 @@ export ENABLE_TEAMS=true
 
 ```bash
 # For Slack
-pip install slack-sdk
+pip install "slack-sdk>=3.27.0"
 
 # For Webex
-pip install webexteamssdk
+pip install "webexteamssdk>=1.6.0"
 
 # For Teams
-pip install botbuilder-core botframework-connector
+pip install "botbuilder-core>=4.15.0" "botframework-connector>=4.15.0" "aiohttp>=3.8.0"
+
+# JWT library upgrade (required after webexteamssdk installation)
+# Webex SDK installs PyJWT 1.7.1, but we need 2.10.1+ for MCP and Teams
+pip install "pyjwt[crypto]>=2.10.1"
 
 # Webhook server (required)
-pip install flask
+pip install "flask>=3.0.0"
 ```
 
 ### 3. Configure Credentials
@@ -363,7 +367,11 @@ For production:
 If you're currently using Slack only:
 
 1. **Keep existing setup** - It still works!
-2. **Install new dependencies** - `pip install webexteamssdk botbuilder-core`
+2. **Install new dependencies**:
+   ```bash
+   pip install "webexteamssdk>=1.6.0" "botbuilder-core>=4.15.0" "botframework-connector>=4.15.0" "aiohttp>=3.8.0"
+   pip install "pyjwt[crypto]>=2.10.1"  # Upgrade after webexteamssdk
+   ```
 3. **Add new platforms** - Set `ENABLE_WEBEX=true` and/or `ENABLE_TEAMS=true`
 4. **Switch to unified server** - Use `unified_webhook_server.py` instead of `slack_webhook_server.py`
 5. **Configure webhooks** - Set up Webex/Teams webhooks

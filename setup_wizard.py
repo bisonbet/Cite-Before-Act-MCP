@@ -1221,7 +1221,8 @@ REM   2. The webhook server will handle verification in application code
 cd /d "%~dp0"
 
 REM Use the Python script that auto-configures webhooks
-python scripts\\start_ngrok_with_webhooks.py
+REM Use venv Python to ensure access to installed packages (webexteamssdk, etc.)
+"{python_exe}" scripts\\start_ngrok_with_webhooks.py
 """
             with open(ngrok_script, "w") as f:
                 f.write(ngrok_content)
@@ -1276,7 +1277,8 @@ echo "Starting Webhook Server..."
 cd "$(dirname "$0")"
 
 # Use the Python script that auto-configures webhooks
-python3 scripts/start_ngrok_with_webhooks.py
+# Use venv Python to ensure access to installed packages (webexteamssdk, etc.)
+"{python_exe}" scripts/start_ngrok_with_webhooks.py
 """
             with open(ngrok_script, "w") as f:
                 f.write(ngrok_content)

@@ -41,7 +41,8 @@ Environment Variables:
 
 Usage:
     1. Install dependencies:
-       pip install flask slack-sdk webexteamssdk botbuilder-core botframework-connector
+       pip install flask slack-sdk webexteamssdk botbuilder-core botframework-connector aiohttp
+       pip install "pyjwt[crypto]>=2.10.1"  # Upgrade after webexteamssdk
 
     2. Enable platforms:
        export ENABLE_SLACK=true
@@ -219,7 +220,7 @@ if ENABLE_TEAMS:
         print("✅ Teams handler and client initialized", file=sys.stderr)
     except ImportError as e:
         print(f"Error: Failed to import Teams dependencies: {e}", file=sys.stderr)
-        print("Install with: pip install botbuilder-core botframework-connector", file=sys.stderr)
+        print("Install with: pip install botbuilder-core botframework-connector aiohttp", file=sys.stderr)
         sys.exit(1)
 
 # Rate limiting store

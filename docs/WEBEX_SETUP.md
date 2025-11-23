@@ -259,16 +259,29 @@ WEBEX_ROOM_ID=your-room-id
 Install the required Webex SDK:
 
 ```bash
-pip install webexteamssdk>=1.6.0
+pip install "webexteamssdk>=1.6.0"
 ```
 
-Or install all dependencies from requirements.txt:
+**Important PyJWT Version Conflict:**
+
+The `webexteamssdk` package depends on an outdated version of PyJWT (1.7.1), which conflicts with the newer PyJWT version (2.10.1+) required by both `mcp` and `botframework-connector` (if using Teams). After installing `webexteamssdk`, you must upgrade PyJWT:
+
+```bash
+pip install "webexteamssdk>=1.6.0"
+pip install "pyjwt[crypto]>=2.10.1"
+```
+
+This will:
+1. First install `webexteamssdk` and its dependencies (including old PyJWT 1.7.1)
+2. Then upgrade PyJWT to 2.10.1+ with cryptographic support, which is compatible with both Webex SDK and other packages
+
+**Or install all dependencies from requirements.txt** (recommended - handles conflicts automatically):
 
 ```bash
 pip install -r requirements.txt
 ```
 
-**Note**: The `webexteamssdk` package is the official Cisco DevNet SDK for Webex Teams API integration.
+**Note**: The `webexteamssdk` package is the official Cisco DevNet SDK for Webex Teams API integration. Despite the PyJWT version mismatch in its declared dependencies, it works correctly with PyJWT 2.10.1+.
 
 ### 4.3 Run the Webhook Server
 

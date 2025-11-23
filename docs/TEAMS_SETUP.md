@@ -232,7 +232,7 @@ TEAMS_SERVICE_URL=https://smba.trafficmanager.net/amer/
 Install the required Bot Framework packages and dependencies:
 
 ```bash
-pip install botbuilder-core>=4.15.0 botframework-connector>=4.15.0 aiohttp
+pip install "botbuilder-core>=4.15.0" "botframework-connector>=4.15.0" "aiohttp"
 ```
 
 Or install all dependencies from requirements.txt:
@@ -247,6 +247,7 @@ pip install -r requirements.txt
 - `botbuilder-core>=4.15.0` - Bot Framework core functionality
 - `botframework-connector>=4.15.0` - Bot Framework connector for Teams
 - `aiohttp` - Async HTTP client/server library (required by Bot Framework)
+- `pyjwt[crypto]>=2.10.1` - JWT token handling with cryptographic support (required by MCP and Bot Framework)
 
 ### 3.3 Run the Webhook Server
 
