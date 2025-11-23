@@ -106,6 +106,10 @@ class TeamsClient:
                         service_url = conv_ref_data.get("service_url")
                         tenant_id = conv_ref_data.get("tenant_id")
 
+                        # Remove message ID suffix if present
+                        if conversation_id and ';messageid=' in conversation_id:
+                            conversation_id = conversation_id.split(';messageid=')[0]
+
                         if conversation_id and service_url:
                             self.conversation_reference = ConversationReference(
                                 service_url=service_url,

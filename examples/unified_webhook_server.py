@@ -195,15 +195,21 @@ if ENABLE_TEAMS:
                 from botbuilder.core import TurnContext
                 conv_ref = TurnContext.get_conversation_reference(turn_context.activity)
                 conv_ref_file = "/tmp/cite-before-act-teams-conversation-reference.json"
+
+                # Extract conversation ID - remove message ID suffix if present
+                conversation_id = conv_ref.conversation.id
+                if ';messageid=' in conversation_id:
+                    conversation_id = conversation_id.split(';messageid=')[0]
+
                 with open(conv_ref_file, "w") as f:
                     json.dump({
                         "service_url": conv_ref.service_url,
                         "channel_id": conv_ref.channel_id,
-                        "conversation_id": conv_ref.conversation.id,
+                        "conversation_id": conversation_id,
                         "tenant_id": conv_ref.conversation.tenant_id if conv_ref.conversation else None,
                     }, f)
                 print(
-                    f"📝 Saved Teams conversation reference to file: {conv_ref.conversation.id}",
+                    f"📝 Saved Teams conversation reference to file: {conversation_id}",
                     file=sys.stderr,
                 )
             except Exception as e:
