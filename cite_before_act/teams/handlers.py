@@ -192,13 +192,10 @@ class TeamsHandler(ActivityHandler):
             )
 
             # Return invoke response with updated card
+            # For Action.Execute, return the card directly in the body
             return InvokeResponse(
                 status=200,
-                body={
-                    "statusCode": 200,
-                    "type": "application/vnd.microsoft.card.adaptive",
-                    "value": response_card,
-                },
+                body=response_card,
             )
 
         except Exception as e:
