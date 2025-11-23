@@ -79,8 +79,8 @@ cite_before_act_mcp/
 │   └── settings.py      # Environment variable handling
 ├── examples/            # Usage examples
 │   ├── library_usage.py
-│   ├── slack_webhook_server.py
-│   └── github_mcp_example.md
+│   ├── standalone_server.py
+│   └── unified_webhook_server.py
 ├── tests/               # Test suite
 └── docs/                # Documentation (you are here!)
 ```

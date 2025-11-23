@@ -54,7 +54,7 @@ Cite-Before-Act supports multiple approval methods that can work together intell
 To enable Approve/Reject buttons in Slack, you need to run a webhook server. See the [Slack Webhook Setup](slack-setup.md) guide for detailed configuration.
 
 **Quick Setup:**
-1. Run webhook server: `python examples/slack_webhook_server.py`
+1. Run webhook server: `ENABLE_SLACK=true python examples/unified_webhook_server.py`
 2. Expose with ngrok: `ngrok http 3000`
 3. Configure in Slack: Interactive Components → Request URL → `https://your-ngrok-url.ngrok.io/slack/interactive`
 

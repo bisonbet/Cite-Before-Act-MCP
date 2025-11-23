@@ -1,6 +1,6 @@
 # Slack Webhook Setup
 
-The webhook server (`examples/slack_webhook_server.py`) supports two security modes, depending on your hosting approach.
+The unified webhook server (`examples/unified_webhook_server.py`) supports Slack along with other platforms (Webex, Teams). It offers two security modes, depending on your hosting approach.
 
 ## Security Mode Comparison
 
@@ -41,10 +41,11 @@ EOF
 
 # 3. Set environment variables
 export SLACK_BOT_TOKEN=xoxb-your-token-here
+export ENABLE_SLACK=true
 export SECURITY_MODE=local  # ngrok handles verification
 
 # 4. Run the webhook server
-python examples/slack_webhook_server.py
+python examples/unified_webhook_server.py
 
 # 5. In another terminal, start ngrok with traffic policy
 ngrok http 3000 --traffic-policy-file ngrok-slack-policy.yml
@@ -62,7 +63,8 @@ ngrok http 3000 --traffic-policy-file ngrok-slack-policy.yml
 
 ```bash
 export SLACK_BOT_TOKEN=xoxb-your-token-here
-python examples/slack_webhook_server.py
+export ENABLE_SLACK=true
+python examples/unified_webhook_server.py
 ngrok http 3000  # No verification - use only for quick testing
 ```
 
@@ -93,10 +95,11 @@ ngrok http 3000  # No verification - use only for quick testing
 # 2. Set environment variables
 export SLACK_BOT_TOKEN=xoxb-your-token-here
 export SLACK_SIGNING_SECRET=your-signing-secret-here
+export ENABLE_SLACK=true
 export SECURITY_MODE=production
 
 # 3. Run the webhook server
-python examples/slack_webhook_server.py
+python examples/unified_webhook_server.py
 
 # 4. Deploy your server
 # - Cloud providers: Use your provider's deployment method (AWS, GCP, Azure, etc.)

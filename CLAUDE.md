@@ -71,7 +71,7 @@ cite-before-act-mcp/
 ├── examples/                 # Usage examples
 │   ├── library_usage.py     # Using as a Python library
 │   ├── standalone_server.py # Running as standalone server
-│   └── slack_webhook_server.py # Slack webhook server for interactive buttons
+│   └── unified_webhook_server.py # Multi-platform webhook server (Slack, Webex, Teams)
 │
 ├── docs/                     # Documentation
 │   ├── installation.md
