@@ -319,7 +319,7 @@ def update_all_approval_cards(approval_id: str, approved: bool, responding_platf
         if "slack" in message_refs and ENABLE_SLACK and slack_client:
             try:
                 ref = message_refs["slack"]
-                slack_client.client.chat_update(
+                slack_client.chat_update(
                     channel=ref["channel"],
                     ts=ref["ts"],
                     text=f"{status_text}: {approval_id[:8]}...",
