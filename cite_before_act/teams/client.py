@@ -359,6 +359,42 @@ class TeamsClient:
         Returns:
             True if message sent successfully, False otherwise
         """
+        # Try to load conversation reference from file if not already set
+        if not self.conversation_reference:
+            import os
+            import json
+            conv_ref_file = "/tmp/cite-before-act-teams-conversation-reference.json"
+            if os.path.exists(conv_ref_file):
+                try:
+                    with open(conv_ref_file, "r") as f:
+                        conv_ref_data = json.load(f)
+                        conversation_id = conv_ref_data.get("conversation_id")
+                        service_url = conv_ref_data.get("service_url")
+                        tenant_id = conv_ref_data.get("tenant_id")
+
+                        # Remove message ID suffix if present
+                        if conversation_id and ';messageid=' in conversation_id:
+                            conversation_id = conversation_id.split(';messageid=')[0]
+
+                        if conversation_id and service_url:
+                            self.conversation_reference = ConversationReference(
+                                service_url=service_url,
+                                channel_id=conv_ref_data.get("channel_id", "msteams"),
+                                conversation=ConversationAccount(
+                                    id=conversation_id,
+                                    tenant_id=tenant_id,
+                                ),
+                            )
+                            print(
+                                f"📂 Loaded Teams conversation reference for notification: {conversation_id}",
+                                file=sys.stderr,
+                            )
+                except Exception as e:
+                    print(
+                        f"⚠️ Warning: Could not load Teams conversation reference: {e}",
+                        file=sys.stderr,
+                    )
+
         if not self.conversation_reference:
             print(
                 "❌ No conversation reference set. Cannot send notification.",
