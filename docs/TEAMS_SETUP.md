@@ -215,7 +215,9 @@ ENABLE_TEAMS=true
 TEAMS_APP_ID=your-app-id-from-step-1.2
 TEAMS_APP_PASSWORD=your-app-password-from-step-1.2
 
-# Optional: Tenant ID (recommended - found on Overview page as "Directory (tenant) ID")
+# Tenant ID (REQUIRED for single-tenant apps, HIGHLY RECOMMENDED for multi-tenant)
+# Found on Overview page as "Directory (tenant) ID"
+# Without this, you may get "AADSTS700016: Application not found in directory 'Bot Framework'" errors
 TEAMS_TENANT_ID=your-tenant-id-from-step-1.2
 
 # Optional: Service URL (usually default is fine)
@@ -371,6 +373,33 @@ curl -X POST https://your-url/api/messages \
 - `TEAMS_APP_PASSWORD` is correct (the secret value, not the ID)
 - Secret hasn't expired (check Azure Portal → Microsoft Entra ID → App registrations → Your app → Certificates & secrets)
 - Webhook server logs for authentication errors
+
+### "AADSTS700016: Application not found in directory 'Bot Framework'" error
+
+**Symptoms:**
+- Error message: `AADSTS700016: Application with identifier '...' was not found in the directory 'Bot Framework'`
+- Authentication fails when trying to send messages or get access tokens
+
+**Cause:**
+The Bot Framework adapter is trying to authenticate against the "Bot Framework" tenant instead of your Azure AD tenant. This happens when the tenant ID is not configured.
+
+**Solution:**
+1. **Set the Tenant ID** in your `.env` file:
+   ```bash
+   TEAMS_TENANT_ID=your-tenant-id-here
+   ```
+   You can find your tenant ID in Azure Portal → Microsoft Entra ID → App registrations → Your app → Overview page (listed as "Directory (tenant) ID")
+
+2. **Verify the tenant ID is correct**:
+   - Go to Azure Portal → Microsoft Entra ID → Overview
+   - Copy the "Tenant ID" value
+   - Ensure it matches the tenant where your app is registered
+
+3. **Restart your webhook server** after setting `TEAMS_TENANT_ID`
+
+4. **For single-tenant apps**: If your app registration is configured as "Single tenant", the tenant ID is **required**. For multi-tenant apps, it's still recommended to set it to avoid authentication issues.
+
+**Note**: The tenant ID is now automatically used to configure tenant-specific authentication, ensuring all token requests go to the correct Azure AD tenant instead of the non-existent "Bot Framework" tenant.
 
 ### Adaptive card doesn't update after clicking button
 

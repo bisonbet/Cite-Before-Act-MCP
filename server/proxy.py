@@ -135,6 +135,7 @@ class ProxyServer:
                 teams_adapter = create_teams_adapter(
                     app_id=self.settings.teams.app_id,
                     app_password=self.settings.teams.app_password,
+                    tenant_id=self.settings.teams.tenant_id,
                 )
                 teams_client = TeamsClient(
                     adapter=teams_adapter,

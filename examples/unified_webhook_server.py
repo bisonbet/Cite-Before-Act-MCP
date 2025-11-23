@@ -163,12 +163,17 @@ if ENABLE_TEAMS:
 
         TEAMS_APP_ID = os.getenv("TEAMS_APP_ID")
         TEAMS_APP_PASSWORD = os.getenv("TEAMS_APP_PASSWORD")
+        TEAMS_TENANT_ID = os.getenv("TEAMS_TENANT_ID")
 
         if not TEAMS_APP_ID or not TEAMS_APP_PASSWORD:
             print("Error: TEAMS_APP_ID and TEAMS_APP_PASSWORD required when ENABLE_TEAMS=true", file=sys.stderr)
             sys.exit(1)
 
-        teams_adapter = create_teams_adapter(TEAMS_APP_ID, TEAMS_APP_PASSWORD)
+        teams_adapter = create_teams_adapter(
+            TEAMS_APP_ID,
+            TEAMS_APP_PASSWORD,
+            tenant_id=TEAMS_TENANT_ID,
+        )
         teams_handler = TeamsHandler()
         print("✅ Teams handler initialized", file=sys.stderr)
     except ImportError as e:
