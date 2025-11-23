@@ -320,12 +320,38 @@ class TeamsHandler(ActivityHandler):
                 except Exception as e:
                     print(f"⚠️ Could not send Webex follow-up: {e}", file=sys.stderr)
 
-            # Send Teams follow-up message (only if not responding from Teams)
-            if "teams" in message_refs and responding_platform != "teams":
+            # Send Teams follow-up message
+            if "teams" in message_refs:
                 try:
-                    # Teams follow-up would be sent by the webhook server's update function
-                    # We skip it here to avoid duplicate messages
-                    pass
+                    # Import Teams client for sending follow-up
+                    import asyncio
+                    from .client import TeamsClient
+                    from .adapter import create_teams_adapter
+
+                    teams_token_id = os.getenv("TEAMS_APP_ID")
+                    teams_password = os.getenv("TEAMS_APP_PASSWORD")
+                    teams_tenant = os.getenv("TEAMS_TENANT_ID")
+
+                    if teams_token_id and teams_password:
+                        adapter = create_teams_adapter(teams_token_id, teams_password, teams_tenant)
+                        teams_client = TeamsClient(
+                            adapter=adapter,
+                            service_url=os.getenv("TEAMS_SERVICE_URL", "https://smba.trafficmanager.net/amer/"),
+                            tenant_id=teams_tenant,
+                        )
+
+                        # Send follow-up notification
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(
+                                teams_client.send_notification(
+                                    f"{status_text}: Approval `{approval_id[:8]}...` was {action_text} via {responding_platform.title()}."
+                                )
+                            )
+                            print(f"✅ Sent Teams follow-up for approval {approval_id[:8]}...", file=sys.stderr)
+                        finally:
+                            loop.close()
                 except Exception as e:
                     print(f"⚠️ Could not send Teams follow-up: {e}", file=sys.stderr)
 
