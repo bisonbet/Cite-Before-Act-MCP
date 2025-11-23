@@ -112,6 +112,7 @@ slack_handler = None
 webex_handler = None
 teams_handler = None
 teams_adapter = None
+teams_client = None
 
 # Slack setup
 if ENABLE_SLACK:
@@ -159,11 +160,12 @@ if ENABLE_WEBEX:
 # Teams setup
 if ENABLE_TEAMS:
     try:
-        from cite_before_act.teams import create_teams_adapter, parse_teams_activity, TeamsHandler
+        from cite_before_act.teams import create_teams_adapter, parse_teams_activity, TeamsHandler, TeamsClient
 
         TEAMS_APP_ID = os.getenv("TEAMS_APP_ID")
         TEAMS_APP_PASSWORD = os.getenv("TEAMS_APP_PASSWORD")
         TEAMS_TENANT_ID = os.getenv("TEAMS_TENANT_ID")
+        TEAMS_SERVICE_URL = os.getenv("TEAMS_SERVICE_URL", "https://smba.trafficmanager.net/amer/")
 
         if not TEAMS_APP_ID or not TEAMS_APP_PASSWORD:
             print("Error: TEAMS_APP_ID and TEAMS_APP_PASSWORD required when ENABLE_TEAMS=true", file=sys.stderr)
@@ -174,8 +176,41 @@ if ENABLE_TEAMS:
             TEAMS_APP_PASSWORD,
             tenant_id=TEAMS_TENANT_ID,
         )
-        teams_handler = TeamsHandler()
-        print("✅ Teams handler initialized", file=sys.stderr)
+
+        # Create Teams client for sending proactive messages
+        teams_client = TeamsClient(
+            adapter=teams_adapter,
+            service_url=TEAMS_SERVICE_URL,
+            tenant_id=TEAMS_TENANT_ID,
+        )
+
+        # Create Teams handler and wire it to save conversation references to the client and file
+        def save_conversation_reference(turn_context):
+            """Callback to save conversation reference when bot receives messages."""
+            # Save to client (for webhook server to send messages)
+            teams_client.set_conversation_reference(turn_context)
+
+            # Also save to file so MCP server can load it and send approval requests
+            try:
+                from botbuilder.core import TurnContext
+                conv_ref = TurnContext.get_conversation_reference(turn_context.activity)
+                conv_ref_file = "/tmp/cite-before-act-teams-conversation-reference.json"
+                with open(conv_ref_file, "w") as f:
+                    json.dump({
+                        "service_url": conv_ref.service_url,
+                        "channel_id": conv_ref.channel_id,
+                        "conversation_id": conv_ref.conversation.id,
+                        "tenant_id": conv_ref.conversation.tenant_id if conv_ref.conversation else None,
+                    }, f)
+                print(
+                    f"📝 Saved Teams conversation reference to file: {conv_ref.conversation.id}",
+                    file=sys.stderr,
+                )
+            except Exception as e:
+                print(f"⚠️ Error saving Teams conversation reference to file: {e}", file=sys.stderr)
+
+        teams_handler = TeamsHandler(on_conversation_reference=save_conversation_reference)
+        print("✅ Teams handler and client initialized", file=sys.stderr)
     except ImportError as e:
         print(f"Error: Failed to import Teams dependencies: {e}", file=sys.stderr)
         print("Install with: pip install botbuilder-core botframework-connector", file=sys.stderr)

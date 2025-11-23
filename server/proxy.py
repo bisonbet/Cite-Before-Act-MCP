@@ -137,15 +137,41 @@ class ProxyServer:
                     app_password=self.settings.teams.app_password,
                     tenant_id=self.settings.teams.tenant_id,
                 )
+
+                # Load conversation reference from file if available
+                # This is saved by the webhook server when the bot receives messages
+                conversation_id = self.settings.teams.conversation_id
+                service_url = self.settings.teams.service_url
+                tenant_id = self.settings.teams.tenant_id
+
+                conv_ref_file = "/tmp/cite-before-act-teams-conversation-reference.json"
+                if os.path.exists(conv_ref_file):
+                    try:
+                        with open(conv_ref_file, "r") as f:
+                            conv_ref_data = json.load(f)
+                            conversation_id = conv_ref_data.get("conversation_id") or conversation_id
+                            service_url = conv_ref_data.get("service_url") or service_url
+                            tenant_id = conv_ref_data.get("tenant_id") or tenant_id
+                            print(
+                                f"📂 Loaded Teams conversation reference from file: {conversation_id}",
+                                file=sys.stderr,
+                            )
+                    except Exception as e:
+                        print(f"⚠️ Warning: Could not load Teams conversation reference from file: {e}", file=sys.stderr)
+
                 teams_client = TeamsClient(
                     adapter=teams_adapter,
-                    service_url=self.settings.teams.service_url,
-                    conversation_id=self.settings.teams.conversation_id,
-                    tenant_id=self.settings.teams.tenant_id,
+                    service_url=service_url,
+                    conversation_id=conversation_id,
+                    tenant_id=tenant_id,
                 )
                 teams_handler = TeamsHandler()
                 teams_configured = True
-                print("✅ Teams client initialized", file=sys.stderr)
+
+                if conversation_id:
+                    print(f"✅ Teams client initialized with conversation: {conversation_id}", file=sys.stderr)
+                else:
+                    print("✅ Teams client initialized (waiting for conversation reference from webhook)", file=sys.stderr)
             except Exception as e:
                 print(f"Warning: Failed to initialize Teams client: {e}", file=sys.stderr)
                 print("Teams approval will not be available", file=sys.stderr)

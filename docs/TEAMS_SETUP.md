@@ -284,22 +284,28 @@ gunicorn -w 4 -b 0.0.0.0:3000 examples.unified_webhook_server:app
 
 ## Step 4: Get Conversation Reference
 
-The bot needs to know where to send approval requests. The conversation reference is captured when the bot receives messages or is added to a conversation.
+The bot needs to know where to send approval requests. The conversation reference is captured automatically when the bot receives messages or is added to a conversation.
 
-**Important**: The unified webhook server (`unified_webhook_server.py`) currently logs conversation references but doesn't persist them automatically. For production use, you'll need to either:
-- Store conversation references in a file/database and load them when sending approvals
-- Use the conversation reference from each incoming message
-- Pre-configure the conversation ID (see Step 4.2)
+**How it works:**
+- When the bot receives any message (from adding it to a channel or someone messaging it), the webhook server automatically saves the conversation reference to `/tmp/cite-before-act-teams-conversation-reference.json`
+- The MCP server reads this file when sending approval requests
+- **The conversation reference persists across restarts** - you don't need to reconfigure after restarting the server
+- This file contains: conversation ID, service URL, channel ID, and tenant ID
 
-### 4.1 Establish Conversation Reference (Recommended for Testing)
+### 4.1 Establish Conversation Reference (Automatic - Recommended)
 
 1. Open Teams and go to the chat/channel where you added the bot
-2. Send a message to the bot (e.g., "hello")
-3. The bot will receive the message and log the conversation reference
-4. Check the webhook server logs - you should see activity indicating the message was received
-5. **Note**: The conversation reference is available in the activity but needs to be stored if you want to send proactive messages later
+2. Send a message to the bot (e.g., "hello") or just add the bot to the channel
+3. The bot will receive the message and automatically save the conversation reference
+4. Check the webhook server logs - you should see:
+   ```
+   📝 Stored Teams conversation reference: 19:xxxxx...
+   📝 Saved Teams conversation reference to file: 19:xxxxx...
+   ```
+5. **Done!** The MCP server can now send approval requests to this channel
+6. The conversation reference is saved to `/tmp/cite-before-act-teams-conversation-reference.json` and persists across server restarts
 
-### 4.2 Find Conversation ID Manually (Recommended for Production)
+### 4.2 Find Conversation ID Manually (Optional - Only if Automatic Method Fails)
 
 If you want to pre-configure the conversation ID to avoid needing to store references dynamically:
 
@@ -327,22 +333,30 @@ If you want to pre-configure the conversation ID to avoid needing to store refer
 ## Step 5: Test the Integration
 
 1. **Start the webhook server** (see Step 3.3)
-2. **Verify the bot is added** to a Teams channel/chat (see Step 2.3)
-3. **Establish conversation reference**:
+2. **Start the MCP server**:
+   ```bash
+   python -m server.main --transport stdio
+   ```
+   - The MCP server will automatically load the conversation reference from `/tmp/cite-before-act-teams-conversation-reference.json` if it exists
+   - If the file exists, you'll see: `📂 Loaded Teams conversation reference from file: 19:xxxxx...`
+   - If not, you'll see: `✅ Teams client initialized (waiting for conversation reference from webhook)`
+3. **Verify the bot is added** to a Teams channel/chat (see Step 2.3)
+4. **Establish conversation reference** (only needed once, persists across restarts):
    - Send the bot a test message (e.g., "hello") in Teams
    - Check webhook server logs to confirm message was received
-   - If using pre-configured conversation ID, skip this step
-4. **Trigger an approval request**:
+   - You should see: `📝 Saved Teams conversation reference to file: 19:xxxxx...`
+5. **Trigger an approval request**:
    - Run an MCP tool that requires approval (e.g., `write_file`, `create_repository`)
    - The Cite-Before-Act middleware should detect it as mutating
-5. **Check Teams for approval card**:
+   - The MCP server will automatically load the conversation reference from the file and send the approval card to Teams
+6. **Check Teams for approval card**:
    - You should receive an adaptive card in Teams with Approve/Reject buttons
    - The card shows the tool name, description, and arguments
-6. **Test approval/rejection**:
+7. **Test approval/rejection**:
    - Click **Approve** or **Reject** button
    - The card should update to show the status
-   - Check webhook server logs for approval response
-   - The MCP tool should proceed (if approved) or be rejected (if rejected)
+   - The webhook server writes the approval response to `/tmp/cite-before-act-teams-approval-{id}.json`
+   - The MCP server reads this file and proceeds (if approved) or rejects (if rejected)
 
 ## Troubleshooting
 
@@ -409,15 +423,45 @@ The Bot Framework adapter is trying to authenticate against the "Bot Framework" 
 - `on_adaptive_card_invoke` handler is implemented
 - Check webhook server logs for invoke activity errors
 
-### Can't send proactive messages
+### Can't send proactive messages / Approval cards not appearing in Teams
 
-**Check:**
-- Conversation reference is stored (send bot a message first)
-- `TEAMS_SERVICE_URL` is correct for your region
-- Bot has necessary permissions in the manifest
+**Symptoms:**
+- Slack and Webex approval cards work, but nothing appears in Teams
+- MCP server logs show: `❌ No conversation reference set. Cannot send proactive message.`
+- Webhook server receives POST requests (shows 200 responses) but no approval cards sent
 
-**Fix:**
-Send the bot a message in the target channel/chat to store the conversation reference.
+**Cause:**
+The MCP server doesn't have the conversation reference (channel ID) where the bot should send messages.
+
+**Solution:**
+
+1. **Ensure the bot is added to a Teams channel/chat** (see Step 2.3)
+
+2. **Send the bot a message** to establish the conversation reference:
+   - Open Teams and go to the channel where you added the bot
+   - Send any message (e.g., "hello")
+   - Check webhook server logs - you should see:
+     ```
+     📝 Stored Teams conversation reference: 19:xxxxx...
+     📝 Saved Teams conversation reference to file: 19:xxxxx...
+     ```
+
+3. **Restart the MCP server** to load the conversation reference:
+   - The MCP server reads `/tmp/cite-before-act-teams-conversation-reference.json` on startup
+   - You should see: `📂 Loaded Teams conversation reference from file: 19:xxxxx...`
+   - If you see: `✅ Teams client initialized (waiting for conversation reference from webhook)` - the file doesn't exist yet
+
+4. **Verify the file exists**:
+   ```bash
+   cat /tmp/cite-before-act-teams-conversation-reference.json
+   ```
+   - Should contain: `conversation_id`, `service_url`, `channel_id`, `tenant_id`
+
+5. **Alternative - Manually configure conversation ID** (see Step 4.2):
+   - Set `TEAMS_CONVERSATION_ID` in `.env` if you know the channel ID
+   - Restart both webhook server and MCP server
+
+**Note**: The conversation reference automatically persists across server restarts. You only need to send the bot a message once to establish it.
 
 ## Common Issues and Solutions
 
