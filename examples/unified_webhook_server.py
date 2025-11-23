@@ -301,6 +301,73 @@ def write_approval_response(approval_id: str, approved: bool, platform: str) -> 
         print(f"Error writing {platform} approval file: {e}", file=sys.stderr, flush=True)
 
 
+def update_all_approval_cards(approval_id: str, approved: bool, responding_platform: str) -> None:
+    """Update approval cards on ALL platforms when approval received on any platform."""
+    try:
+        from cite_before_act.approval_messages import get_message_references
+        message_refs = get_message_references(approval_id)
+
+        if not message_refs:
+            print(f"No message references found for {approval_id[:8]}...", file=sys.stderr)
+            return
+
+        status_text = "✅ Approved" if approved else "❌ Rejected"
+        print(f"📢 Updating approval cards across all platforms: {status_text}", file=sys.stderr)
+
+        # Update Slack card
+        if "slack" in message_refs and ENABLE_SLACK and slack_client:
+            try:
+                ref = message_refs["slack"]
+                slack_client.client.chat_update(
+                    channel=ref["channel"],
+                    ts=ref["ts"],
+                    text=f"{status_text}: {approval_id[:8]}...",
+                    blocks=[
+                        {
+                            "type": "header",
+                            "text": {"type": "plain_text", "text": status_text, "emoji": True}
+                        },
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"Approval ID: `{approval_id[:8]}...`\n\nAction was {('approved' if approved else 'rejected')} via {responding_platform.title()}."
+                            }
+                        }
+                    ]
+                )
+                print(f"✅ Updated Slack card for {approval_id[:8]}...", file=sys.stderr)
+            except Exception as e:
+                print(f"⚠️ Failed to update Slack card: {e}", file=sys.stderr)
+
+        # Update Webex card
+        if "webex" in message_refs and ENABLE_WEBEX and webex_handler:
+            try:
+                ref = message_refs["webex"]
+                # Webex doesn't support editing cards, so send a new message
+                webex_handler.api.messages.create(
+                    roomId=ref["room_id"],
+                    text=f"{status_text}: Approval {approval_id[:8]}... was {('approved' if approved else 'rejected')} via {responding_platform.title()}."
+                )
+                print(f"✅ Sent Webex status message for {approval_id[:8]}...", file=sys.stderr)
+            except Exception as e:
+                print(f"⚠️ Failed to send Webex status message: {e}", file=sys.stderr)
+
+        # Send Teams follow-up message
+        if "teams" in message_refs and ENABLE_TEAMS and teams_client:
+            try:
+                # Send a new message with the status
+                asyncio.run(teams_client.send_notification(
+                    f"{status_text}: Approval {approval_id[:8]}... was {('approved' if approved else 'rejected')} via {responding_platform.title()}."
+                ))
+                print(f"✅ Sent Teams status message for {approval_id[:8]}...", file=sys.stderr)
+            except Exception as e:
+                print(f"⚠️ Failed to send Teams status message: {e}", file=sys.stderr)
+
+    except Exception as e:
+        print(f"❌ Error updating approval cards: {e}", file=sys.stderr)
+
+
 # Slack endpoint
 @app.route("/slack/interactive", methods=["POST"])
 def slack_interactive():
@@ -340,6 +407,8 @@ def slack_interactive():
                 if approval_id and validate_approval_id(approval_id):
                     approved = action["action_id"] == "approve_action"
                     write_approval_response(approval_id, approved, "slack")
+                    # Update cards on all platforms
+                    update_all_approval_cards(approval_id, approved, "slack")
 
         return jsonify(response)
     except Exception as e:
@@ -375,6 +444,8 @@ def webex_interactive():
 
             if approval_id and validate_approval_id(approval_id):
                 write_approval_response(approval_id, approved, "webex")
+                # Update cards on all platforms
+                update_all_approval_cards(approval_id, approved, "webex")
 
         return jsonify(response)
     except Exception as e:

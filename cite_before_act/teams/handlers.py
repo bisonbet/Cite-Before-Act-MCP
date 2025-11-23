@@ -179,6 +179,16 @@ class TeamsHandler(ActivityHandler):
                     flush=True,
                 )
 
+            # Update approval cards on all platforms
+            try:
+                from cite_before_act.approval_messages import get_message_references
+                self._update_all_platforms(approval_id, approved, "teams")
+            except Exception as update_error:
+                print(
+                    f"⚠️ Warning: Could not update other platform cards: {update_error}",
+                    file=sys.stderr,
+                )
+
             # Trigger the registered callback (for in-process handlers)
             self._trigger_callback(approval_id, approved)
 
@@ -246,3 +256,78 @@ class TeamsHandler(ActivityHandler):
                 f"🗑️ Unregistered Teams callback for {approval_id[:8]}...",
                 file=sys.stderr,
             )
+
+    def _update_all_platforms(self, approval_id: str, approved: bool, responding_platform: str) -> None:
+        """
+        Update approval cards on all platforms when approval received.
+
+        Args:
+            approval_id: Approval request ID
+            approved: Whether the request was approved
+            responding_platform: Platform that responded (e.g., "teams")
+        """
+        try:
+            from cite_before_act.approval_messages import get_message_references
+            message_refs = get_message_references(approval_id)
+
+            if not message_refs:
+                return
+
+            status_text = "✅ Approved" if approved else "❌ Rejected"
+            action_text = "approved" if approved else "rejected"
+
+            # Update Slack card
+            if "slack" in message_refs:
+                try:
+                    from slack_sdk import WebClient
+                    import os
+                    slack_token = os.getenv("SLACK_BOT_TOKEN")
+                    if slack_token:
+                        slack_client = WebClient(token=slack_token)
+                        ref = message_refs["slack"]
+                        slack_client.chat_update(
+                            channel=ref["channel"],
+                            ts=ref["ts"],
+                            text=f"{status_text}: {approval_id[:8]}...",
+                            blocks=[
+                                {
+                                    "type": "section",
+                                    "text": {
+                                        "type": "mrkdwn",
+                                        "text": f"*{status_text}*\n\nApproval `{approval_id[:8]}...` was {action_text} via {responding_platform.title()}."
+                                    }
+                                }
+                            ]
+                        )
+                        print(f"✅ Updated Slack card for approval {approval_id[:8]}...", file=sys.stderr)
+                except Exception as e:
+                    print(f"⚠️ Could not update Slack card: {e}", file=sys.stderr)
+
+            # Send Webex follow-up message
+            if "webex" in message_refs:
+                try:
+                    from webexteamssdk import WebexTeamsAPI
+                    import os
+                    webex_token = os.getenv("WEBEX_BOT_TOKEN")
+                    if webex_token:
+                        webex_api = WebexTeamsAPI(access_token=webex_token)
+                        ref = message_refs["webex"]
+                        webex_api.messages.create(
+                            roomId=ref["room_id"],
+                            text=f"{status_text}: Approval `{approval_id[:8]}...` was {action_text} via {responding_platform.title()}."
+                        )
+                        print(f"✅ Sent Webex follow-up for approval {approval_id[:8]}...", file=sys.stderr)
+                except Exception as e:
+                    print(f"⚠️ Could not send Webex follow-up: {e}", file=sys.stderr)
+
+            # Send Teams follow-up message (only if not responding from Teams)
+            if "teams" in message_refs and responding_platform != "teams":
+                try:
+                    # Teams follow-up would be sent by the webhook server's update function
+                    # We skip it here to avoid duplicate messages
+                    pass
+                except Exception as e:
+                    print(f"⚠️ Could not send Teams follow-up: {e}", file=sys.stderr)
+
+        except Exception as e:
+            print(f"❌ Error in _update_all_platforms: {e}", file=sys.stderr)

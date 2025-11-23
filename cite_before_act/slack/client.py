@@ -269,7 +269,20 @@ class SlackClient:
             )
             if not response["ok"]:
                 raise SlackApiError(f"Slack API returned error: {response.get('error', 'unknown error')}")
-            return response["ts"]
+
+            # Save message reference for cross-platform updates
+            message_ts = response["ts"]
+            try:
+                from cite_before_act.approval_messages import save_message_reference
+                save_message_reference(
+                    approval_id=approval_id,
+                    platform="slack",
+                    message_data={"ts": message_ts, "channel": channel}
+                )
+            except Exception as e:
+                print(f"Warning: Could not save Slack message reference: {e}", file=sys.stderr)
+
+            return message_ts
         except SlackApiError as e:
             # Extract error message safely
             error_msg = str(e)

@@ -59,17 +59,31 @@ class WebexClient:
 
             # Send message
             if self.room_id:
-                self.api.messages.create(
+                message = self.api.messages.create(
                     roomId=self.room_id,
                     text=f"Approval Required: {tool_name}",
                     attachments=[attachment]
                 )
             else:
-                self.api.messages.create(
+                message = self.api.messages.create(
                     toPersonEmail=self.person_email,
                     text=f"Approval Required: {tool_name}",
                     attachments=[attachment]
                 )
+
+            # Save message reference for cross-platform updates
+            try:
+                from cite_before_act.approval_messages import save_message_reference
+                save_message_reference(
+                    approval_id=approval_id,
+                    platform="webex",
+                    message_data={
+                        "message_id": message.id,
+                        "room_id": self.room_id if self.room_id else None
+                    }
+                )
+            except Exception as e:
+                print(f"Warning: Could not save Webex message reference: {e}", file=sys.stderr)
 
             print(
                 f"✅ Webex approval request sent for {tool_name} "
