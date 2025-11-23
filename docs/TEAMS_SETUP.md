@@ -2,13 +2,25 @@
 
 This guide will walk you through setting up a Microsoft Teams bot for approval notifications with Cite-Before-Act MCP.
 
+## ⚠️ IMPORTANT: Account Requirements
+
+**This integration REQUIRES a Microsoft Teams work or school account. Personal Microsoft accounts (@outlook.com, @hotmail.com) are NOT supported.**
+
+To use this Teams bot integration, you must have:
+- A **work or school Microsoft Teams account** (organizational account)
+- An Azure subscription with permissions to create App Registrations and Bot Services
+- Your organization must allow custom app uploads in Teams
+
+**Personal Microsoft accounts cannot create Azure Bot Services or upload custom apps to Teams.** If you only have a personal account, you will need to use Slack or Webex instead.
+
 ## Prerequisites
 
+- **Microsoft Teams work or school account** (organizational account) - **MANDATORY**
 - Azure account with permissions to create App Registrations and Bot Services
 - Microsoft Teams workspace where you can add bots
 - Public HTTPS endpoint (use ngrok for development, or deploy to cloud)
 - Python 3.10+ (required for botbuilder-core 4.15.0+)
-- botbuilder-core and botframework-connector packages installed
+- Required Python packages: `botbuilder-core`, `botframework-connector`, and `aiohttp`
 
 ## Architecture Overview
 
@@ -22,7 +34,7 @@ Unlike Slack and Webex which use simple webhooks, Microsoft Teams requires:
 
 **Note on Bot Types**: Microsoft has announced that multi-tenant bot creation will be deprecated after July 31, 2025. For new bots, consider using **single-tenant** or **user-assigned managed identity** bot types. Existing multi-tenant bots will continue to function after the deprecation date.
 
-**Note on Account Types**: If you need to support personal Microsoft accounts (@outlook.com, @hotmail.com), you must select the account type that includes "personal Microsoft accounts" during app registration (see Step 1.1). This option is still multi-tenant and subject to the deprecation notice above, but it's the only way to support personal accounts.
+**Note on Account Types**: This integration requires a work or school Teams account. While Azure App Registration technically supports personal Microsoft accounts in the account type selection, **personal Teams accounts cannot use custom bots** due to Teams policy restrictions. You must use a work or school account to upload and use custom Teams apps.
 
 ## Step 1: Create Azure Bot Registration
 
@@ -36,13 +48,12 @@ Unlike Slack and Webex which use simple webhooks, Microsoft Teams requires:
 3. Click **New registration**
    - Name: `Cite-Before-Act Approval Bot`
    - Supported account types: Choose based on your needs:
-     - **For personal Microsoft accounts** (@outlook.com, @hotmail.com) **and** organizational accounts:
-       - Select: `Accounts in any organizational directory (Any Microsoft Entra ID tenant - Multitenant) and personal Microsoft accounts (e.g. Skype, Xbox)`
-     - **For organizational accounts only**:
+     - **For organizational accounts only** (recommended):
        - Select: `Accounts in any organizational directory (Any Microsoft Entra directory - Multitenant)`
        - **Note**: Multi-tenant bot creation will be deprecated after July 31, 2025. For new bots, consider using **Single tenant** instead.
      - **For single organization only**:
        - Select: `Accounts in this organizational directory only (Single tenant)`
+     - **⚠️ Important**: Do NOT select the option that includes "personal Microsoft accounts" - personal Teams accounts cannot use custom bots. This integration requires a work or school account.
    - Redirect URI: Leave blank for now
 4. Click **Register**
 
@@ -216,10 +227,10 @@ TEAMS_SERVICE_URL=https://smba.trafficmanager.net/amer/
 
 ### 3.2 Install Dependencies
 
-Install the required Bot Framework packages:
+Install the required Bot Framework packages and dependencies:
 
 ```bash
-pip install botbuilder-core>=4.15.0 botframework-connector>=4.15.0
+pip install botbuilder-core>=4.15.0 botframework-connector>=4.15.0 aiohttp
 ```
 
 Or install all dependencies from requirements.txt:
@@ -229,6 +240,11 @@ pip install -r requirements.txt
 ```
 
 **Note**: Ensure you're using Python 3.10 or higher, as botbuilder-core 4.15.0+ requires Python 3.10+.
+
+**Required packages:**
+- `botbuilder-core>=4.15.0` - Bot Framework core functionality
+- `botframework-connector>=4.15.0` - Bot Framework connector for Teams
+- `aiohttp` - Async HTTP client/server library (required by Bot Framework)
 
 ### 3.3 Run the Webhook Server
 
