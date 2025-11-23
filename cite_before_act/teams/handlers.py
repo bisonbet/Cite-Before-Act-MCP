@@ -182,7 +182,7 @@ class TeamsHandler(ActivityHandler):
             # Update approval cards on all platforms
             try:
                 from cite_before_act.approval_messages import get_message_references
-                self._update_all_platforms(approval_id, approved, "teams")
+                await self._update_all_platforms(approval_id, approved, "teams")
             except Exception as update_error:
                 print(
                     f"⚠️ Warning: Could not update other platform cards: {update_error}",
@@ -257,7 +257,7 @@ class TeamsHandler(ActivityHandler):
                 file=sys.stderr,
             )
 
-    def _update_all_platforms(self, approval_id: str, approved: bool, responding_platform: str) -> None:
+    async def _update_all_platforms(self, approval_id: str, approved: bool, responding_platform: str) -> None:
         """
         Update approval cards on all platforms when approval received.
 
@@ -324,7 +324,6 @@ class TeamsHandler(ActivityHandler):
             if "teams" in message_refs:
                 try:
                     # Import Teams client for sending follow-up
-                    import asyncio
                     from .client import TeamsClient
                     from .adapter import create_teams_adapter
 
@@ -340,18 +339,11 @@ class TeamsHandler(ActivityHandler):
                             tenant_id=teams_tenant,
                         )
 
-                        # Send follow-up notification
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            loop.run_until_complete(
-                                teams_client.send_notification(
-                                    f"{status_text}: Approval `{approval_id[:8]}...` was {action_text} via {responding_platform.title()}."
-                                )
-                            )
-                            print(f"✅ Sent Teams follow-up for approval {approval_id[:8]}...", file=sys.stderr)
-                        finally:
-                            loop.close()
+                        # Send follow-up notification (await since we're in async context)
+                        await teams_client.send_notification(
+                            f"{status_text}: Approval `{approval_id[:8]}...` was {action_text} via {responding_platform.title()}."
+                        )
+                        print(f"✅ Sent Teams follow-up for approval {approval_id[:8]}...", file=sys.stderr)
                 except Exception as e:
                     print(f"⚠️ Could not send Teams follow-up: {e}", file=sys.stderr)
 
