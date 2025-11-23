@@ -338,17 +338,6 @@
     </header>
 
     <div class="container">
-        <section class="section" style="background: linear-gradient(135deg, rgba(37, 99, 235, 0.05) 0%, rgba(16, 185, 129, 0.05) 100%); padding: 2rem; border-radius: 12px; text-align: center; margin-top: 2rem;">
-            <h2 style="margin-bottom: 1rem;">🎥 See It In Action</h2>
-            <p style="font-size: 1.1rem; margin-bottom: 1.5rem;">Watch a live demonstration of Cite-Before-Act MCP in action</p>
-            <a href="https://youtu.be/gZPYAwxf6Mo" class="btn btn-primary" target="_blank" rel="noopener" style="display: inline-flex; align-items: center; gap: 0.5rem; font-size: 1.1rem;">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M8 5v14l11-7z"/>
-                </svg>
-                Watch Demo Video
-            </a>
-        </section>
-
         <section class="section">
             <h2>Overview</h2>
             <p>Cite-Before-Act MCP implements a standardized "dry-run → approval → execute" workflow for any MCP (Model Context Protocol) server. It acts as a transparent proxy that intercepts tool calls, detects mutating operations, and requires human approval before execution.</p>
@@ -356,6 +345,31 @@
             <div class="highlight">
                 <strong>Problem:</strong> AI assistants can execute dangerous operations (delete files, send emails, charge cards) without explicit user consent.<br>
                 <strong>Solution:</strong> Cite-Before-Act enforces a human-in-the-loop approval workflow for all state-mutating operations.
+            </div>
+        </section>
+
+        <section class="section" style="background: linear-gradient(135deg, rgba(37, 99, 235, 0.05) 0%, rgba(16, 185, 129, 0.05) 100%); padding: 2rem; border-radius: 12px; margin-top: 2rem;">
+            <h2 style="margin-bottom: 1.5rem; text-align: center;">🎥 See It In Action</h2>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem; align-items: start;">
+                <!-- YouTube Video -->
+                <div style="text-align: center;">
+                    <h3 style="margin-bottom: 1rem; color: var(--primary-color);">YouTube Demo</h3>
+                    <p style="margin-bottom: 1.5rem;">Watch a live demonstration of Cite-Before-Act MCP</p>
+                    <a href="https://youtu.be/gZPYAwxf6Mo" class="btn btn-primary" target="_blank" rel="noopener" style="display: inline-flex; align-items: center; gap: 0.5rem;">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M8 5v14l11-7z"/>
+                        </svg>
+                        Watch Demo Video
+                    </a>
+                </div>
+
+                <!-- LinkedIn Post -->
+                <div style="text-align: center;">
+                    <h3 style="margin-bottom: 1rem; color: var(--primary-color);">LinkedIn Announcement</h3>
+                    <p style="margin-bottom: 1.5rem;">Join the discussion on LinkedIn</p>
+                    <iframe src="https://www.linkedin.com/embed/feed/update/urn:li:share:7398425599721086976?compact=1" height="399" width="100%" frameborder="0" allowfullscreen="" title="Embedded LinkedIn post" style="border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"></iframe>
+                </div>
             </div>
         </section>
 
