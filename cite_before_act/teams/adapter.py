@@ -41,6 +41,28 @@ def create_teams_adapter(
             "Teams App ID and Password are required. "
             "Set TEAMS_APP_ID and TEAMS_APP_PASSWORD environment variables."
         )
+    
+    # Debug: Verify credentials are loaded (don't print password)
+    if app_id:
+        print(
+            f"📋 Teams App ID loaded: {app_id[:8]}... (from {'parameter' if app_id != os.getenv('TEAMS_APP_ID') else 'env'})",
+            file=os.sys.stderr,
+        )
+    if app_password:
+        print(
+            f"📋 Teams App Password loaded: {'*' * min(len(app_password), 20)}... (from {'parameter' if app_password != os.getenv('TEAMS_APP_PASSWORD') else 'env'})",
+            file=os.sys.stderr,
+        )
+    if tenant_id:
+        print(
+            f"📋 Teams Tenant ID loaded: {tenant_id}",
+            file=os.sys.stderr,
+        )
+    else:
+        print(
+            "⚠️ Warning: TEAMS_TENANT_ID not set. Authentication may fail.",
+            file=os.sys.stderr,
+        )
 
     # Configure BotFrameworkAdapterSettings with tenant-specific authentication
     # The auth_tenant_id parameter ensures authentication goes to the correct tenant
@@ -85,16 +107,24 @@ def create_teams_adapter(
                     if MicrosoftAppCredentials:
                         # Create tenant-specific credentials as fallback
                         tenant_authority = f"https://login.microsoftonline.com/{tenant_id}"
+                        # MicrosoftAppCredentials only accepts app_id and password
                         tenant_credentials = MicrosoftAppCredentials(
                             app_id=app_id,
                             password=app_password,
-                            o_auth_scope="https://api.botframework.com/.default",
                         )
-                        # Try to set OAuth endpoint
+                        # Try to set OAuth endpoint and scope after creation
                         if hasattr(tenant_credentials, 'o_auth_endpoint'):
                             tenant_credentials.o_auth_endpoint = f"{tenant_authority}/oauth2/v2.0/token"
                         elif hasattr(tenant_credentials, 'oauth_endpoint'):
                             tenant_credentials.oauth_endpoint = f"{tenant_authority}/oauth2/v2.0/token"
+                        # Set OAuth scope if the attribute exists
+                        if hasattr(tenant_credentials, 'o_auth_scope'):
+                            tenant_credentials.o_auth_scope = "https://api.botframework.com/.default"
+                        elif hasattr(tenant_credentials, 'oauth_scope'):
+                            tenant_credentials.oauth_scope = "https://api.botframework.com/.default"
+                        # Set authority if available
+                        if hasattr(tenant_credentials, 'authority'):
+                            tenant_credentials.authority = tenant_authority
                         print(
                             f"✅ Created tenant-specific credentials for tenant: {tenant_id}",
                             file=os.sys.stderr,
