@@ -197,6 +197,21 @@ class TeamsClient:
                 f"(ID: {approval_id[:8]}...)",
                 file=sys.stderr,
             )
+
+            # Save message reference for cross-platform updates
+            try:
+                from cite_before_act.approval_messages import save_message_reference
+                save_message_reference(
+                    approval_id=approval_id,
+                    platform="teams",
+                    message_data={
+                        "conversation_id": self.conversation_reference.conversation.id,
+                        "service_url": self.conversation_reference.service_url,
+                    }
+                )
+            except Exception as e:
+                print(f"Warning: Could not save Teams message reference: {e}", file=sys.stderr)
+
             return True
 
         except Exception as e:
