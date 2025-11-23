@@ -4,7 +4,6 @@ import os
 from typing import Optional
 from botbuilder.core import BotFrameworkAdapter, BotFrameworkAdapterSettings
 from botbuilder.schema import Activity
-from botframework.connector.auth import MicrosoftAppCredentials
 
 
 def create_teams_adapter(
@@ -59,39 +58,26 @@ def create_teams_adapter(
             file=os.sys.stderr,
         )
 
-    # Configure tenant-specific authentication using oauth_endpoint
-    # This is the proper way to configure authentication for a specific Azure AD tenant
+    # Configure tenant-specific authentication
+    # For Bot Framework SDK, we use channel_auth_tenant in settings
     if tenant_id:
-        # Create tenant-specific OAuth endpoint
-        # Format: https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token
-        oauth_endpoint = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
-
-        # Create credentials with tenant-specific endpoint
-        credentials = MicrosoftAppCredentials(
-            app_id=app_id,
-            password=app_password,
-            oauth_endpoint=oauth_endpoint,
-        )
-
-        # Create settings
+        # Create settings with tenant-specific configuration
+        # The channel_auth_tenant tells the adapter which tenant to authenticate against
         settings = BotFrameworkAdapterSettings(
             app_id=app_id,
             app_password=app_password,
+            channel_auth_tenant=tenant_id,
         )
 
         # Create adapter with settings
         adapter = BotFrameworkAdapter(settings)
-
-        # Override the adapter's credentials with our tenant-specific credentials
-        # The adapter creates default credentials, but we replace them with ours
-        adapter.credentials = credentials
 
         print(
             f"✅ Teams adapter configured for tenant: {tenant_id}",
             file=os.sys.stderr,
         )
         print(
-            f"   OAuth endpoint: {oauth_endpoint}",
+            f"   Using channel_auth_tenant for tenant-specific authentication",
             file=os.sys.stderr,
         )
     else:
