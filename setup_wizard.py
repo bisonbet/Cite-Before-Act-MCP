@@ -726,11 +726,9 @@ def configure_upstream() -> Dict[str, Any]:
             "command": command,
             "args": args,
             "transport": "stdio",
+            # Always include github_token key (even if empty) so .env gets the placeholder
+            "github_token": token if token else ""
         }
-
-        # Only add token to config if provided (don't add empty string)
-        if token:
-            config["github_token"] = token
 
         return config
     else:
@@ -795,7 +793,7 @@ def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], webex_con
             pass
 
         # If adding GitHub server and token not in .env, append it
-        if upstream_config.get("github_token") is not None and not has_github_token:
+        if "github_token" in upstream_config and not has_github_token:
             print(f"\nAdding GitHub token to existing .env file...")
             try:
                 with open(env_path, "a") as f:
@@ -844,8 +842,8 @@ def generate_env_file(project_dir: Path, slack_config: Dict[str, Any], webex_con
         "# -----------------------------------------------------------------------------",
     ]
 
-    # Add GitHub token if provided
-    if upstream_config.get("github_token") is not None:
+    # Add GitHub token if GitHub server was configured
+    if "github_token" in upstream_config:
         # GitHub token was requested (either provided or skipped)
         lines.extend([
             "",
