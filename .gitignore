@@ -135,7 +135,10 @@ celerybeat.pid
 *.sage.py
 
 # Environments
+# CRITICAL: Never commit .env files - they contain secrets and credentials!
 .env
+.env.local
+.env.*.local
 .envrc
 .venv
 env/
@@ -143,6 +146,17 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Security: Additional credential file patterns
+*.key
+*.pem
+*.p12
+*.pfx
+*_credentials.json
+*_secret.json
+*.secret
+credentials/
+secrets/
 
 # Spyder project settings
 .spyderproject
