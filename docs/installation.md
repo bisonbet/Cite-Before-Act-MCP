@@ -22,7 +22,7 @@ python3 setup_wizard.py
 The setup wizard will:
 - ✅ Create a Python virtual environment
 - ✅ Install all dependencies
-- ✅ Guide you through Slack configuration (optional)
+- ✅ Guide you through approval platform configuration (Slack, Webex, Teams - optional)
 - ✅ Set up ngrok for webhooks (optional)
 - ✅ Generate Claude Desktop configuration
 - ✅ Create convenient startup scripts
@@ -69,7 +69,7 @@ pip install -e .
 
 **The system works immediately with local approval - no configuration needed!**
 
-For optional Slack integration or custom settings:
+For optional platform integrations (Slack, Webex, Teams) or custom settings:
 
 1. Copy the example configuration:
    ```bash
@@ -81,6 +81,18 @@ For optional Slack integration or custom settings:
    # For Slack integration (optional)
    SLACK_BOT_TOKEN=xoxb-your-token-here
    SLACK_CHANNEL=#approvals
+   ENABLE_SLACK=true
+
+   # For Webex Teams integration (optional)
+   WEBEX_BOT_TOKEN=your-bot-token
+   WEBEX_ROOM_ID=your-room-id
+   ENABLE_WEBEX=true
+
+   # For Microsoft Teams integration (optional)
+   TEAMS_APP_ID=your-app-id
+   TEAMS_APP_PASSWORD=your-app-password
+   TEAMS_TENANT_ID=your-tenant-id
+   ENABLE_TEAMS=true
 
    # For upstream server (required for proxy mode)
    UPSTREAM_COMMAND=npx

@@ -136,6 +136,9 @@ These apply to ALL wrapped MCP servers:
 ```bash
 GITHUB_PERSONAL_ACCESS_TOKEN=ghp_...  # GitHub PAT (secret)
 SLACK_BOT_TOKEN=xoxb-...              # Slack bot token (secret)
+WEBEX_BOT_TOKEN=...                   # Webex bot token (secret)
+TEAMS_APP_ID=...                      # Teams App ID (secret)
+TEAMS_APP_PASSWORD=...                # Teams App Password (secret)
 UPSTREAM_AUTH_TOKEN=...               # Generic auth token (secret)
 ```
 
@@ -143,14 +146,34 @@ UPSTREAM_AUTH_TOKEN=...               # Generic auth token (secret)
 ```bash
 APPROVAL_TIMEOUT_SECONDS=300    # Timeout in seconds
 USE_LOCAL_APPROVAL=true         # Enable local approval (GUI/file-based)
-USE_GUI_APPROVAL=true          # Use native OS dialogs (auto-disabled if Slack enabled)
+USE_GUI_APPROVAL=true          # Use native OS dialogs (auto-disabled if platforms enabled)
 ENABLE_SLACK=true               # Enable Slack (requires token, disables native dialogs)
+ENABLE_WEBEX=false              # Enable Webex Teams (requires bot token)
+ENABLE_TEAMS=false              # Enable Microsoft Teams (requires Azure app credentials)
 ```
 
 **Slack Configuration:**
 ```bash
 SLACK_CHANNEL=#approvals        # Channel name or ID
 SLACK_USER_ID=U1234567890       # For DMs instead of channel
+```
+
+**Webex Configuration:**
+```bash
+ENABLE_WEBEX=true               # Enable Webex integration
+WEBEX_BOT_TOKEN=...             # Webex bot access token
+WEBEX_ROOM_ID=...               # Room/space ID for messages
+WEBEX_PERSON_EMAIL=...          # Alternative: person email for DMs
+```
+
+**Microsoft Teams Configuration:**
+```bash
+ENABLE_TEAMS=true               # Enable Teams integration
+TEAMS_APP_ID=...                # Azure App ID
+TEAMS_APP_PASSWORD=...          # Azure App Password
+TEAMS_TENANT_ID=...             # Tenant ID (recommended)
+TEAMS_SERVICE_URL=...           # Service URL (optional, default works)
+TEAMS_CONVERSATION_ID=...       # Conversation ID (optional, auto-detected)
 ```
 
 **Detection Defaults:**

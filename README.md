@@ -18,12 +18,15 @@ This provides a standardized "dry-run → approval → execute" workflow that ot
 
 - **Multi-Strategy Detection**: Identifies mutating tools via allowlist/blocklist, naming conventions, and metadata analysis
 - **Natural Language Previews**: Generates human-readable descriptions of tool actions
-- **Concurrent Approval Methods**: Multiple approval channels run in parallel - respond via any method
-  - Native OS dialogs (macOS/Windows)
-  - Slack integration with interactive buttons
-  - File-based CLI approval (always available, visible in logs)
-- **First Response Wins**: User can approve/reject via any enabled method - the first response is accepted
-- **Smart Method Coordination**: Automatically disables native popups when Slack is enabled (prevents duplicates), while keeping file-based logging
+- **Multi-Platform Approvals**: Support for multiple collaboration platforms
+  - **Slack** - Interactive buttons via webhook
+  - **Webex Teams** - Adaptive cards with buttons
+  - **Microsoft Teams** - Adaptive cards via Bot Framework
+  - **Native OS dialogs** (macOS/Windows)
+  - **File-based CLI** approval (always available, visible in logs)
+- **Concurrent Approval Methods**: All enabled platforms run in parallel - respond via any method
+- **First Response Wins**: User can approve/reject via any enabled platform - the first response is accepted
+- **Smart Method Coordination**: Automatically disables native popups when platforms are enabled (prevents duplicates)
 - **Works Out of the Box**: Local approval requires no configuration
 - **FastMCP Based**: Built on FastMCP for easy integration and proxy capabilities
 - **Configurable**: Flexible configuration via environment variables
@@ -60,10 +63,15 @@ For manual installation and configuration options, see the [Installation Guide](
 ### Configuration
 - **[Configuration Reference](docs/configuration.md)** - Complete configuration guide and environment variables
 - **[Detection System](docs/detection.md)** - How the detection engine identifies mutating operations
-- **[Approval Methods](docs/approval-methods.md)** - Local, Slack, and file-based approval
+- **[Approval Methods](docs/approval-methods.md)** - Overview of all approval methods (local, Slack, Webex, Teams)
+
+### Approval Platform Setup
+- **[Slack Setup](docs/slack-setup.md)** - Configure Slack integration with interactive buttons
+- **[Webex Setup](docs/WEBEX_SETUP.md)** - Configure Webex Teams bot and adaptive cards
+- **[Microsoft Teams Setup](docs/TEAMS_SETUP.md)** - Configure Teams bot with Azure (requires work/school account)
+- **[Multi-Platform Approvals](docs/MULTI_PLATFORM_APPROVALS.md)** - Using multiple platforms together
 
 ### Advanced Topics
-- **[Slack Webhook Setup](docs/slack-setup.md)** - Configure Slack integration and interactive buttons
 - **[Advanced Usage](docs/advanced-usage.md)** - Use as a library, standalone server, custom integrations
 - **[Architecture](docs/architecture.md)** - System architecture and project structure
 - **[Development](docs/development.md)** - Contributing and development setup
@@ -100,8 +108,10 @@ Client → Cite-Before-Act Proxy → Middleware → Detection → Explain → Ap
 3. Detection engine identifies it as mutating (via `write_` prefix)
 4. Explain engine generates preview: "Write file: /path/test.txt (13 bytes)"
 5. Approval requests sent concurrently via all enabled methods:
-   - **Native dialog**: Popup appears (macOS/Windows, if Slack not enabled)
+   - **Native dialog**: Popup appears (macOS/Windows, if no platforms enabled)
    - **Slack**: Message with Approve/Reject buttons sent to channel/DM (if configured)
+   - **Webex**: Adaptive card with buttons sent to space/room (if configured)
+   - **Teams**: Adaptive card with buttons sent to channel/chat (if configured)
    - **File-based**: Instructions printed to Claude Desktop logs (always)
 6. User responds via **any method** (first response wins)
 7. File is created (if approved) or rejected with error message
@@ -115,14 +125,16 @@ All enabled approval methods run **concurrently** (in parallel), and the **first
 
 | Method | Platform | Requires Config | When Active | Notes |
 |--------|----------|----------------|-------------|-------|
-| **Native OS Dialog** | macOS/Windows | No | When `USE_GUI_APPROVAL=true` and Slack not enabled | Interactive popup using osascript (macOS) or PowerShell (Windows) |
-| **Slack (Interactive)** | All | Yes (token + webhook) | When `ENABLE_SLACK=true` | Sends message with Approve/Reject buttons; auto-disables native dialogs |
+| **Native OS Dialog** | macOS/Windows | No | When `USE_GUI_APPROVAL=true` and no platforms enabled | Interactive popup using osascript (macOS) or PowerShell (Windows) |
+| **Slack** | All | Yes (token + webhook) | When `ENABLE_SLACK=true` | Interactive buttons; auto-disables native dialogs |
+| **Webex Teams** | All | Yes (bot token + webhook) | When `ENABLE_WEBEX=true` | Adaptive cards with approve/reject buttons |
+| **Microsoft Teams** | All | Yes (Azure App + webhook) | When `ENABLE_TEAMS=true` | Adaptive cards via Bot Framework; requires work/school account |
 | **File-Based (CLI)** | All | No | Always active | Instructions printed to logs; user writes response to `/tmp/cite-before-act-approval-*.json` |
 
 **Key behaviors:**
 - **Parallel execution**: All enabled methods run simultaneously
 - **First response wins**: Approval or rejection from any method is immediately accepted
-- **Smart coordination**: Native dialogs automatically disabled when Slack is configured (prevents duplicate popups)
+- **Smart coordination**: Native dialogs automatically disabled when platforms are enabled (prevents duplicate popups)
 - **File-based always available**: Instructions always printed to logs as a universal fallback, regardless of other methods
 
 See [Approval Methods](docs/approval-methods.md) for detailed configuration.
