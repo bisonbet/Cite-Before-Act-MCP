@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Cite-Before-Act MCP - Human-in-the-loop safety middleware for MCP servers. Requires explicit approval for state-mutating operations.">
+    <meta name="keywords" content="MCP, Model Context Protocol, safety, human-in-the-loop, middleware, approval workflow">
+    <title>Cite-Before-Act MCP - Human-in-the-Loop Safety for MCP Servers</title>
+
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --primary-dark: #1e40af;
+            --secondary-color: #10b981;
+            --background: #ffffff;
+            --surface: #f9fafb;
+            --text-primary: #111827;
+            --text-secondary: #6b7280;
+            --border: #e5e7eb;
+            --code-bg: #1f2937;
+            --code-text: #f3f4f6;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            line-height: 1.6;
+            color: var(--text-primary);
+            background: var(--background);
+        }
+
+        header {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 3rem 2rem;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            font-weight: 700;
+        }
+
+        header p {
+            font-size: 1.25rem;
+            opacity: 0.95;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .section {
+            margin: 3rem 0;
+        }
+
+        .section h2 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            color: var(--primary-color);
+            border-bottom: 3px solid var(--primary-color);
+            padding-bottom: 0.5rem;
+        }
+
+        .section h3 {
+            font-size: 1.5rem;
+            margin: 1.5rem 0 1rem 0;
+            color: var(--text-primary);
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+
+        .feature-card {
+            background: var(--surface);
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+        }
+
+        .feature-card h3 {
+            color: var(--primary-color);
+            margin-top: 0;
+            font-size: 1.25rem;
+        }
+
+        .feature-card ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .feature-card li {
+            padding: 0.5rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+
+        .feature-card li::before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: var(--secondary-color);
+            font-weight: bold;
+        }
+
+        .workflow {
+            background: var(--surface);
+            padding: 2rem;
+            border-radius: 12px;
+            border-left: 4px solid var(--primary-color);
+            margin: 2rem 0;
+        }
+
+        .workflow-diagram {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            border: 1px solid var(--border);
+            margin: 1rem 0;
+        }
+
+        .workflow-diagram pre {
+            margin: 0;
+            white-space: pre;
+            color: var(--text-primary);
+        }
+
+        .cta-section {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 3rem 2rem;
+            border-radius: 12px;
+            text-align: center;
+            margin: 3rem 0;
+        }
+
+        .cta-section h2 {
+            color: white;
+            border: none;
+            margin-bottom: 1rem;
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 2rem;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 0.875rem 2rem;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+
+        .btn-primary {
+            background: white;
+            color: var(--primary-color);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: white;
+            border-color: white;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .approval-methods {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+
+        .method-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 2px solid var(--border);
+            text-align: center;
+        }
+
+        .method-card.platform {
+            border-color: var(--secondary-color);
+        }
+
+        .method-card.native {
+            border-color: var(--primary-color);
+        }
+
+        .method-card h4 {
+            margin: 0.5rem 0;
+            color: var(--text-primary);
+        }
+
+        .method-card .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-top: 0.5rem;
+        }
+
+        .badge-required {
+            background: var(--danger);
+            color: white;
+        }
+
+        .badge-optional {
+            background: var(--secondary-color);
+            color: white;
+        }
+
+        .example {
+            background: var(--code-bg);
+            color: var(--code-text);
+            padding: 1.5rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+
+        .example pre {
+            margin: 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.875rem;
+        }
+
+        .highlight {
+            background: linear-gradient(120deg, rgba(37, 99, 235, 0.1) 0%, rgba(16, 185, 129, 0.1) 100%);
+            padding: 1.5rem;
+            border-radius: 8px;
+            border-left: 4px solid var(--secondary-color);
+            margin: 1.5rem 0;
+        }
+
+        .highlight strong {
+            color: var(--primary-color);
+        }
+
+        footer {
+            background: var(--surface);
+            padding: 2rem;
+            text-align: center;
+            margin-top: 4rem;
+            border-top: 1px solid var(--border);
+        }
+
+        footer p {
+            color: var(--text-secondary);
+            margin: 0.5rem 0;
+        }
+
+        footer a {
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 1.75rem;
+            }
+
+            header p {
+                font-size: 1rem;
+            }
+
+            .section h2 {
+                font-size: 1.5rem;
+            }
+
+            .features {
+                grid-template-columns: 1fr;
+            }
+
+            .cta-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .btn {
+                width: 100%;
+                max-width: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🛡️ Cite-Before-Act MCP</h1>
+        <p>Human-in-the-loop safety middleware for MCP servers. Require explicit approval before state-mutating operations.</p>
+    </header>
+
+    <div class="container">
+        <section class="section">
+            <h2>Overview</h2>
+            <p>Cite-Before-Act MCP implements a standardized "dry-run → approval → execute" workflow for any MCP (Model Context Protocol) server. It acts as a transparent proxy that intercepts tool calls, detects mutating operations, and requires human approval before execution.</p>
+
+            <div class="highlight">
+                <strong>Problem:</strong> AI assistants can execute dangerous operations (delete files, send emails, charge cards) without explicit user consent.<br>
+                <strong>Solution:</strong> Cite-Before-Act enforces a human-in-the-loop approval workflow for all state-mutating operations.
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Key Features</h2>
+            <div class="features">
+                <div class="feature-card">
+                    <h3>🔍 Multi-Strategy Detection</h3>
+                    <ul>
+                        <li>Allowlist/Blocklist configuration</li>
+                        <li>Naming convention analysis</li>
+                        <li>Metadata keyword detection</li>
+                        <li>Smart read-only identification</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <h3>📝 Natural Language Previews</h3>
+                    <ul>
+                        <li>Human-readable action descriptions</li>
+                        <li>Key parameter extraction</li>
+                        <li>Clear impact summaries</li>
+                        <li>Concise formatting</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <h3>🌐 Multi-Platform Approvals</h3>
+                    <ul>
+                        <li>Slack interactive buttons</li>
+                        <li>Webex Teams adaptive cards</li>
+                        <li>Microsoft Teams integration</li>
+                        <li>Native OS dialogs (macOS/Windows)</li>
+                        <li>File-based CLI approval</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <h3>⚡ Concurrent Execution</h3>
+                    <ul>
+                        <li>All methods run in parallel</li>
+                        <li>First response wins</li>
+                        <li>Smart method coordination</li>
+                        <li>No duplicate prompts</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <h3>🔧 Easy Integration</h3>
+                    <ul>
+                        <li>Works with any MCP server</li>
+                        <li>Protocol-agnostic design</li>
+                        <li>Built on FastMCP framework</li>
+                        <li>Minimal configuration required</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <h3>🎯 Flexible Configuration</h3>
+                    <ul>
+                        <li>Environment variable based</li>
+                        <li>Two-tier config system</li>
+                        <li>Per-server customization</li>
+                        <li>Interactive setup wizard</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>How It Works</h2>
+            <div class="workflow">
+                <h3>Request Flow</h3>
+                <div class="workflow-diagram">
+                    <pre>
+Client → Cite-Before-Act Proxy → Middleware → Detection → Explain → Approval → Upstream Server
+                                    ↓
+                              (if mutating)
+                                    ↓
+                          Concurrent Approval Methods
+                          (run in parallel, first response wins)
+                                    ↓
+                    ┌───────────────┼───────────────┬───────────────┐
+                    │               │               │               │
+              Native Dialog    Slack Button   Webex Card    Teams Card
+              (macOS/Win)   (interactive msg) (adaptive)   (adaptive)
+                    │               │               │               │
+                    └───────────────┼───────────────┴───────────────┘
+                                    ↓
+                        User responds via any method
+                                    ↓
+                              Execute or Reject</pre>
+                </div>
+
+                <h3>Example Workflow</h3>
+                <ol>
+                    <li><strong>User Request:</strong> "Create a file called test.txt with content 'Hello, World!'"</li>
+                    <li><strong>Interception:</strong> Cite-Before-Act intercepts the <code>write_file</code> tool call</li>
+                    <li><strong>Detection:</strong> Identified as mutating via <code>write_</code> prefix convention</li>
+                    <li><strong>Preview:</strong> "Write file: /path/test.txt (13 bytes)"</li>
+                    <li><strong>Approval Requests:</strong> Sent concurrently to all enabled platforms</li>
+                    <li><strong>User Response:</strong> Approve or reject via any method (first wins)</li>
+                    <li><strong>Execution:</strong> File created if approved, error if rejected</li>
+                    <li><strong>Result:</strong> Returned to Claude Desktop</li>
+                </ol>
+
+                <p><strong>Read-only operations</strong> (like <code>read_file</code>, <code>list_directory</code>) execute immediately without approval.</p>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Approval Methods</h2>
+            <p>All enabled methods run concurrently - respond via any platform, first response wins:</p>
+
+            <div class="approval-methods">
+                <div class="method-card native">
+                    <h4>Native OS Dialog</h4>
+                    <p>macOS/Windows popup</p>
+                    <span class="badge badge-optional">No Config Required</span>
+                </div>
+
+                <div class="method-card platform">
+                    <h4>Slack</h4>
+                    <p>Interactive buttons</p>
+                    <span class="badge badge-required">Webhook Required</span>
+                </div>
+
+                <div class="method-card platform">
+                    <h4>Webex Teams</h4>
+                    <p>Adaptive cards</p>
+                    <span class="badge badge-required">Bot Required</span>
+                </div>
+
+                <div class="method-card platform">
+                    <h4>Microsoft Teams</h4>
+                    <p>Bot Framework</p>
+                    <span class="badge badge-required">Azure App Required</span>
+                </div>
+
+                <div class="method-card native">
+                    <h4>File-Based CLI</h4>
+                    <p>JSON response file</p>
+                    <span class="badge badge-optional">Always Available</span>
+                </div>
+            </div>
+
+            <div class="highlight">
+                <strong>Smart Coordination:</strong> Native dialogs automatically disable when collaboration platforms are enabled to prevent duplicate prompts. File-based approval instructions are always printed to logs as a universal fallback.
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Quick Start</h2>
+            <p>Get started in minutes with the interactive setup wizard:</p>
+
+            <div class="example">
+                <pre>git clone https://github.com/bisonbet/Cite-Before-Act-MCP.git
+cd Cite-Before-Act-MCP
+python3 setup_wizard.py</pre>
+            </div>
+
+            <p>The wizard will:</p>
+            <ul style="margin-left: 2rem; margin-top: 1rem;">
+                <li>Create Python virtual environment</li>
+                <li>Install dependencies</li>
+                <li>Configure Slack (optional)</li>
+                <li>Set up ngrok for webhooks (optional)</li>
+                <li>Generate Claude Desktop configuration</li>
+                <li>Create startup scripts</li>
+            </ul>
+        </section>
+
+        <section class="section">
+            <h2>Configuration Example</h2>
+            <p>Wrap any MCP server with minimal configuration:</p>
+
+            <div class="example">
+                <pre>{
+  "mcpServers": {
+    "github-cite": {
+      "command": "python",
+      "args": ["-m", "server.main", "--transport", "stdio"],
+      "env": {
+        "UPSTREAM_COMMAND": "docker",
+        "UPSTREAM_ARGS": "run,-i,--rm,ghcr.io/github/github-mcp-server",
+        "UPSTREAM_TRANSPORT": "stdio",
+        "ENABLE_SLACK": "true",
+        "SLACK_CHANNEL": "#approvals"
+      }
+    }
+  }
+}</pre>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Documentation</h2>
+            <div class="features">
+                <div class="feature-card">
+                    <h3>Getting Started</h3>
+                    <ul>
+                        <li>Installation Guide</li>
+                        <li>Claude Desktop Setup</li>
+                        <li>Installing Upstream Servers</li>
+                        <li>Testing Your Setup</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <h3>Configuration</h3>
+                    <ul>
+                        <li>Configuration Reference</li>
+                        <li>Detection System</li>
+                        <li>Approval Methods</li>
+                        <li>Environment Variables</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <h3>Platform Setup</h3>
+                    <ul>
+                        <li>Slack Integration</li>
+                        <li>Webex Teams Setup</li>
+                        <li>Microsoft Teams Setup</li>
+                        <li>Multi-Platform Usage</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <h3>Advanced Topics</h3>
+                    <ul>
+                        <li>Architecture Overview</li>
+                        <li>Development Guide</li>
+                        <li>Library Usage</li>
+                        <li>Custom Integrations</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <div class="cta-section">
+            <h2>Ready to Add Safety to Your MCP Servers?</h2>
+            <p>Start using Cite-Before-Act MCP today and gain human-in-the-loop control over state-mutating operations.</p>
+
+            <div class="cta-buttons">
+                <a href="https://github.com/bisonbet/Cite-Before-Act-MCP" class="btn btn-primary" target="_blank" rel="noopener">
+                    View on GitHub
+                </a>
+                <a href="https://github.com/bisonbet/Cite-Before-Act-MCP/blob/main/docs/installation.md" class="btn btn-secondary" target="_blank" rel="noopener">
+                    Installation Guide
+                </a>
+                <a href="https://github.com/bisonbet/Cite-Before-Act-MCP/blob/main/docs/configuration.md" class="btn btn-secondary" target="_blank" rel="noopener">
+                    Configuration Docs
+                </a>
+            </div>
+        </div>
+
+        <section class="section">
+            <h2>Use Cases</h2>
+            <div class="features">
+                <div class="feature-card">
+                    <h3>🔒 Security-Sensitive Operations</h3>
+                    <p>Require approval before deleting files, modifying databases, or changing system configurations.</p>
+                </div>
+
+                <div class="feature-card">
+                    <h3>💳 Financial Transactions</h3>
+                    <p>Prevent accidental charges, refunds, or payment processing without explicit consent.</p>
+                </div>
+
+                <div class="feature-card">
+                    <h3>📧 Communication</h3>
+                    <p>Review and approve emails, messages, or notifications before they're sent.</p>
+                </div>
+
+                <div class="feature-card">
+                    <h3>🔄 Integration Workflows</h3>
+                    <p>Gate API calls to external services, ensuring controlled automation.</p>
+                </div>
+
+                <div class="feature-card">
+                    <h3>📊 Data Management</h3>
+                    <p>Control data creation, updates, and deletions across systems.</p>
+                </div>
+
+                <div class="feature-card">
+                    <h3>🚀 DevOps Safety</h3>
+                    <p>Approve deployments, infrastructure changes, and production operations.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Technical Highlights</h2>
+            <ul style="margin-left: 2rem;">
+                <li><strong>Built on FastMCP:</strong> Leverages the FastMCP framework for robust MCP protocol support</li>
+                <li><strong>Python 3.10+:</strong> Modern Python with type hints and async/await support</li>
+                <li><strong>Protocol-Agnostic:</strong> Works with stdio, HTTP, and SSE transports</li>
+                <li><strong>Language-Independent:</strong> Can wrap MCP servers written in any language</li>
+                <li><strong>Pydantic Configuration:</strong> Type-safe configuration with validation</li>
+                <li><strong>Async Architecture:</strong> Non-blocking concurrent approval methods</li>
+                <li><strong>Extensible Design:</strong> Easy to add custom detection strategies and approval methods</li>
+                <li><strong>AGPL-3.0 License:</strong> Free and open source</li>
+            </ul>
+        </section>
+    </div>
+
+    <footer>
+        <p><strong>Cite-Before-Act MCP</strong></p>
+        <p>Built with <a href="https://github.com/jlowin/fastmcp" target="_blank" rel="noopener">FastMCP</a> | Licensed under AGPL-3.0</p>
+        <p>
+            <a href="https://github.com/bisonbet/Cite-Before-Act-MCP" target="_blank" rel="noopener">GitHub</a> |
+            <a href="https://github.com/bisonbet/Cite-Before-Act-MCP/issues" target="_blank" rel="noopener">Issues</a> |
+            <a href="https://github.com/bisonbet/Cite-Before-Act-MCP/blob/main/docs/development.md" target="_blank" rel="noopener">Contributing</a>
+        </p>
+        <p style="margin-top: 1rem; color: var(--text-secondary); font-size: 0.875rem;">
+            © 2024 Cite-Before-Act MCP Contributors
+        </p>
+    </footer>
+</body>
+</html>
