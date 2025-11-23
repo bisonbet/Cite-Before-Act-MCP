@@ -42,88 +42,115 @@ def create_teams_adapter(
             "Set TEAMS_APP_ID and TEAMS_APP_PASSWORD environment variables."
         )
 
-    settings = BotFrameworkAdapterSettings(
-        app_id=app_id,
-        app_password=app_password,
-    )
-
-    # Store tenant-specific credentials if we create them
+    # Configure BotFrameworkAdapterSettings with tenant-specific authentication
+    # The auth_tenant_id parameter ensures authentication goes to the correct tenant
+    # instead of defaulting to the "Bot Framework" tenant (which doesn't exist)
+    settings_kwargs = {
+        "app_id": app_id,
+        "app_password": app_password,
+    }
+    
+    # Store tenant credentials for fallback injection if needed
     tenant_credentials = None
-
-    # Configure tenant-specific authentication if tenant_id is provided
-    # This ensures authentication requests go to the correct tenant instead of
-    # defaulting to the "Bot Framework" tenant (which doesn't exist)
-    if tenant_id and MicrosoftAppCredentials:
+    
+    # Add tenant ID if provided - this is the proper way to configure tenant-specific auth
+    if tenant_id:
+        # Check if BotFrameworkAdapterSettings supports auth_tenant_id parameter
+        # This is the recommended way to configure tenant-specific authentication
         try:
-            # Create tenant-specific credentials that will be used by the adapter
-            # The adapter uses MicrosoftAppCredentials internally for token requests
-            tenant_authority = f"https://login.microsoftonline.com/{tenant_id}"
-            
-            # Create credentials with tenant-specific OAuth endpoint
-            tenant_credentials = MicrosoftAppCredentials(
-                app_id=app_id,
-                password=app_password,
-                o_auth_scope="https://api.botframework.com/.default",
-            )
-            # Store for later use
-            
-            # Set the tenant-specific OAuth endpoint
-            # This is the key fix: ensures authentication goes to your tenant, not "Bot Framework"
-            if hasattr(tenant_credentials, 'o_auth_endpoint'):
-                tenant_credentials.o_auth_endpoint = f"{tenant_authority}/oauth2/v2.0/token"
-            elif hasattr(tenant_credentials, 'oauth_endpoint'):
-                tenant_credentials.oauth_endpoint = f"{tenant_authority}/oauth2/v2.0/token"
-            
-            # Also try to set the authority directly if available
-            if hasattr(tenant_credentials, 'authority'):
-                tenant_credentials.authority = tenant_authority
-            
-            # Override the adapter's settings credentials if possible
-            # Some SDK versions allow this, others create credentials internally
-            if hasattr(settings, 'credentials'):
-                settings.credentials = tenant_credentials
-            
-            print(
-                f"✅ Teams adapter configured for tenant: {tenant_id}",
-                file=os.sys.stderr,
-            )
+            import inspect
+            settings_sig = inspect.signature(BotFrameworkAdapterSettings.__init__)
+            if 'auth_tenant_id' in settings_sig.parameters:
+                settings_kwargs["auth_tenant_id"] = tenant_id
+                print(
+                    f"✅ Teams adapter configured for tenant: {tenant_id}",
+                    file=os.sys.stderr,
+                )
+            else:
+                # Fallback: try alternative parameter names
+                if 'tenant_id' in settings_sig.parameters:
+                    settings_kwargs["tenant_id"] = tenant_id
+                    print(
+                        f"✅ Teams adapter configured for tenant: {tenant_id}",
+                        file=os.sys.stderr,
+                    )
+                else:
+                    # If auth_tenant_id is not supported, create tenant-specific credentials
+                    # We'll inject them into the adapter after it's created
+                    print(
+                        f"⚠️ Warning: BotFrameworkAdapterSettings doesn't support auth_tenant_id. "
+                        f"Using fallback credential configuration.",
+                        file=os.sys.stderr,
+                    )
+                    if MicrosoftAppCredentials:
+                        # Create tenant-specific credentials as fallback
+                        tenant_authority = f"https://login.microsoftonline.com/{tenant_id}"
+                        tenant_credentials = MicrosoftAppCredentials(
+                            app_id=app_id,
+                            password=app_password,
+                            o_auth_scope="https://api.botframework.com/.default",
+                        )
+                        # Try to set OAuth endpoint
+                        if hasattr(tenant_credentials, 'o_auth_endpoint'):
+                            tenant_credentials.o_auth_endpoint = f"{tenant_authority}/oauth2/v2.0/token"
+                        elif hasattr(tenant_credentials, 'oauth_endpoint'):
+                            tenant_credentials.oauth_endpoint = f"{tenant_authority}/oauth2/v2.0/token"
+                        print(
+                            f"✅ Created tenant-specific credentials for tenant: {tenant_id}",
+                            file=os.sys.stderr,
+                        )
         except Exception as e:
-            # If configuration fails, log a warning but continue
-            # The tenant_id will still be used in conversation references
             print(
-                f"⚠️ Warning: Could not configure tenant-specific authentication for {tenant_id}: {e}. "
-                f"Authentication may fail. Ensure TEAMS_TENANT_ID is set correctly.",
+                f"⚠️ Warning: Could not configure tenant-specific authentication: {e}",
                 file=os.sys.stderr,
             )
-    elif tenant_id:
-        print(
-            f"⚠️ Warning: Tenant ID provided but MicrosoftAppCredentials not available. "
-            f"Install botframework-connector package for tenant-specific authentication.",
-            file=os.sys.stderr,
-        )
 
+    settings = BotFrameworkAdapterSettings(**settings_kwargs)
     adapter = BotFrameworkAdapter(settings)
     
-    # If we created tenant-specific credentials, try to inject them into the adapter
-    # The adapter may have already created credentials, so we try to override them
+    # If we created tenant-specific credentials as fallback, inject them into the adapter
     if tenant_credentials:
         try:
-            # Try to access and override the adapter's internal credentials
-            # This is SDK-version dependent, so we try multiple approaches
+            # Try multiple ways to inject credentials into the adapter
             if hasattr(adapter, '_credentials'):
                 adapter._credentials = tenant_credentials
             elif hasattr(adapter, 'credentials'):
                 adapter.credentials = tenant_credentials
             elif hasattr(adapter.settings, 'credentials'):
                 adapter.settings.credentials = tenant_credentials
-        except Exception:
-            # If we can't override, the settings-based approach above should work
-            pass
+            print(
+                f"✅ Injected tenant-specific credentials into adapter",
+                file=os.sys.stderr,
+            )
+        except Exception as e:
+            print(
+                f"⚠️ Warning: Could not inject tenant-specific credentials: {e}",
+                file=os.sys.stderr,
+            )
 
-    # Error handler
+    # Error handler with more detailed error information
     async def on_error(context, error):
-        print(f"❌ Teams bot error: {error}", flush=True)
-        await context.send_activity("Sorry, an error occurred.")
+        error_msg = str(error)
+        print(f"❌ Teams bot error: {error_msg}", flush=True)
+        
+        # Provide more specific guidance for common errors
+        if "Unauthorized" in error_msg or "401" in error_msg:
+            print(
+                "💡 Troubleshooting 'Unauthorized' error:\n"
+                "  1. Verify TEAMS_APP_ID and TEAMS_APP_PASSWORD are correct\n"
+                "  2. Check that TEAMS_TENANT_ID matches your Azure AD tenant\n"
+                "  3. Ensure the app secret hasn't expired in Azure Portal\n"
+                "  4. Verify the app is registered in the correct tenant\n"
+                "  5. Check that API permissions are granted with admin consent",
+                file=os.sys.stderr,
+                flush=True,
+            )
+        
+        try:
+            await context.send_activity("Sorry, an error occurred.")
+        except Exception:
+            # If we can't send a message, that's okay - we've already logged the error
+            pass
 
     adapter.on_turn_error = on_error
 
